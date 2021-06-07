@@ -1,0 +1,122 @@
+From 4f59e6c80f5ef17ed216dc0b9033ed811197ec33 Mon Sep 17 00:00:00 2001
+From: Jan200101 <sentrycraft123@gmail.com>
+Date: Mon, 7 Jun 2021 01:14:05 +0200
+Subject: [PATCH] specify the output lib, exe and include paths with flags
+
+Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
+---
+ lib/std/build.zig                | 26 +++++++++++++++++++++-----
+ lib/std/special/build_runner.zig | 25 +++++++++++++++++++++++--
+ 2 files changed, 44 insertions(+), 7 deletions(-)
+
+diff --git a/lib/std/build.zig b/lib/std/build.zig
+index 572f2b2be..f7f90fb51 100644
+--- a/lib/std/build.zig
++++ b/lib/std/build.zig
+@@ -190,8 +190,12 @@ pub const Builder = struct {
+     }
+ 
+     /// This function is intended to be called by std/special/build_runner.zig, not a build.zig file.
+-    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8) void {
+-        if (self.dest_dir) |dest_dir| {
++    pub fn resolveInstallPrefix(self: *Builder, install_prefix: ?[]const u8, lib_dir: ?[]const u8, exe_dir: ?[]const u8, h_dir: ?[]const u8) void {
++        var dest_dir: []const u8 = "";
++
++        if (self.dest_dir) |self_dest_dir| {
++            dest_dir = self_dest_dir;
++
+             self.install_prefix = install_prefix orelse "/usr";
+             self.install_path = fs.path.join(self.allocator, &[_][]const u8{ dest_dir, self.install_prefix }) catch unreachable;
+         } else {
+@@ -199,9 +203,21 @@ pub const Builder = struct {
+                 (fs.path.join(self.allocator, &[_][]const u8{ self.build_root, "zig-out" }) catch unreachable);
+             self.install_path = self.install_prefix;
+         }
+-        self.lib_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable;
+-        self.exe_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable;
+-        self.h_dir = fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable;
++
++        self.lib_dir = if (lib_dir != null)
++            (fs.path.join(self.allocator, &[_][]const u8{ dest_dir, lib_dir.? }) catch unreachable)
++        else
++            (fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "lib" }) catch unreachable);
++
++        self.exe_dir = if (exe_dir != null)
++            (fs.path.join(self.allocator, &[_][]const u8{ dest_dir, exe_dir.? }) catch unreachable)
++        else
++            (fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "bin" }) catch unreachable);
++
++        self.h_dir = if (h_dir != null)
++            (fs.path.join(self.allocator, &[_][]const u8{ dest_dir, h_dir.? }) catch unreachable)
++        else
++            (fs.path.join(self.allocator, &[_][]const u8{ self.install_path, "include" }) catch unreachable);
+     }
+ 
+     pub fn addExecutable(self: *Builder, name: []const u8, root_src: ?[]const u8) *LibExeObjStep {
+diff --git a/lib/std/special/build_runner.zig b/lib/std/special/build_runner.zig
+index c6185ef09..883bb053e 100644
+--- a/lib/std/special/build_runner.zig
++++ b/lib/std/special/build_runner.zig
+@@ -61,6 +61,9 @@ pub fn main() !void {
+     const stdout_stream = io.getStdOut().writer();
+ 
+     var install_prefix: ?[]const u8 = null;
++    var lib_dir: ?[]const u8 = null;
++    var exe_dir: ?[]const u8 = null;
++    var h_dir: ?[]const u8 = null;
+     while (nextArg(args, &arg_idx)) |arg| {
+         if (mem.startsWith(u8, arg, "-D")) {
+             const option_contents = arg[2..];
+@@ -87,6 +90,21 @@ pub fn main() !void {
+                     warn("Expected argument after {s}\n\n", .{arg});
+                     return usageAndErr(builder, false, stderr_stream);
+                 };
++            } else if (mem.eql(u8, arg, "--output-lib-dir")) {
++                lib_dir = nextArg(args, &arg_idx) orelse {
++                    warn("Expected argument after {s}\n\n", .{arg});
++                    return usageAndErr(builder, false, stderr_stream);
++                };
++            } else if (mem.eql(u8, arg, "--output-exe-dir")) {
++                exe_dir = nextArg(args, &arg_idx) orelse {
++                    warn("Expected argument after {s}\n\n", .{arg});
++                    return usageAndErr(builder, false, stderr_stream);
++                };
++            } else if (mem.eql(u8, arg, "--output-include-dir")) {
++                h_dir = nextArg(args, &arg_idx) orelse {
++                    warn("Expected argument after {s}\n\n", .{arg});
++                    return usageAndErr(builder, false, stderr_stream);
++                };
+             } else if (mem.eql(u8, arg, "--search-prefix")) {
+                 const search_prefix = nextArg(args, &arg_idx) orelse {
+                     warn("Expected argument after --search-prefix\n\n", .{});
+@@ -135,7 +153,7 @@ pub fn main() !void {
+         }
+     }
+ 
+-    builder.resolveInstallPrefix(install_prefix);
++    builder.resolveInstallPrefix(install_prefix, lib_dir, exe_dir, h_dir);
+     try runBuild(builder);
+ 
+     if (builder.validateUserInputDidItFail())
+@@ -163,7 +181,7 @@ fn runBuild(builder: *Builder) anyerror!void {
+ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void {
+     // run the build script to collect the options
+     if (!already_ran_build) {
+-        builder.resolveInstallPrefix(null);
++        builder.resolveInstallPrefix(null, null, null, null);
+         try runBuild(builder);
+     }
+ 
+@@ -189,6 +207,9 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void
+         \\  -h, --help                  Print this help and exit
+         \\  --verbose                   Print commands before executing them
+         \\  -p, --prefix [path]         Override default install prefix
++        \\  --output-lib-dir [path]     Override default library directory path
++        \\  --output-exe-dir [path]     Override default executable directory path
++        \\  --output-include-dir [path] Override default include directory path
+         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
+         \\  --color [auto|off|on]       Enable or disable colored error messages
+         \\
+-- 
+2.31.1
+
