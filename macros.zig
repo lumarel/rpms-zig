@@ -1,4 +1,4 @@
-%zig_arches x86_64 %{ix86} armv7hl aarch64 riscv64 %{mips}
+%zig_arches x86_64 aarch64 riscv64 %{mips64}
 
 %_zig_version @@ZIG_VERSION@@
 %__zig /usr/bin/zig

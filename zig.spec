@@ -1,5 +1,6 @@
 # https://ziglang.org/download/0.8.0/release-notes.html#Support-Table
-%global         zig_arches x86_64 %{ix86} armv7hl aarch64 riscv64 %{mips}
+# 32 bit builds currently run out of memory https://github.com/ziglang/zig/issues/6485
+%global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 
 Name:           zig
 Version:        0.8.0
