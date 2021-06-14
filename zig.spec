@@ -14,6 +14,7 @@ Source1:        macros.%{name}
 
 # https://github.com/ziglang/zig/pull/9020
 Patch0:         0001-specify-the-output-lib-exe-and-include-paths-with-fl.patch
+Patch1:         0002-zig-build-rename-lib-dir-include-dir-exe-dir.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -23,6 +24,8 @@ BuildRequires:  clang-devel
 BuildRequires:  lld-devel
 # for man page generation
 BuildRequires:  help2man
+# for the macro
+BuildRequires:  sed
 # for testing
 #BuildRequires:  elfutils-libelf-devel
 #BuildRequires:  libstdc++-static
