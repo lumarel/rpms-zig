@@ -102,7 +102,7 @@ ln -s lib "%{__cmake_builddir}/"
 %if 35 > 0%{?fedora}
 %{__cmake_builddir}/zig build docs -Dversion-string="%{version}"
 %endif
-mkdir zig-cache
+mkdir -p zig-cache
 touch zig-cache/langref.html
 
 %install
