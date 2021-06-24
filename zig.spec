@@ -2,9 +2,12 @@
 # 32 bit builds currently run out of memory https://github.com/ziglang/zig/issues/6485
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 
+# documentation and tests do not build due to an unsupported glibc version
+%global         rawhide     35
+
 Name:           zig
 Version:        0.8.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
@@ -96,8 +99,10 @@ help2man --no-discard-stderr "%{__cmake_builddir}/zig" --version-option=version 
 
 ln -s lib "%{__cmake_builddir}/"
 
-# buildings docs fails on rawhide due to the libc version
-%{__cmake_builddir}/zig build docs -Dversion-string="%{version}" || true
+%if 35 > 0%{?fedora}
+%{__cmake_builddir}/zig build docs -Dversion-string="%{version}"
+%endif
+mkdir zig-cache
 touch zig-cache/langref.html
 
 %install
@@ -113,10 +118,12 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 
 %check
 
+%if 35 > 0%{?fedora}
 # tests are affected by an LLVM regression
 # https://bugs.llvm.org/show_bug.cgi?id=49401
 # https://github.com/ziglang/zig/issues/8130
 # %%{__cmake_builddir}/zig build test
+%endif
 
 %files
 %license LICENSE
@@ -134,6 +141,9 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 %{_rpmconfigdir}/macros.d/macros.%{name}
 
 %changelog
+* Thu Jun 24 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.0-2
+- Update patches, correct rpm macro
+
 * Sat Jun 05 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.0-1
 - Update to Zig 0.8.0
 
