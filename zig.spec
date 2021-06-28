@@ -99,7 +99,7 @@ help2man --no-discard-stderr "%{__cmake_builddir}/zig" --version-option=version 
 
 ln -s lib "%{__cmake_builddir}/"
 
-%if 35 > 0%{?fedora}
+%if %{rawhide} > 0%{?fedora}
 %{__cmake_builddir}/zig build docs -Dversion-string="%{version}"
 %endif
 mkdir -p zig-cache
@@ -118,7 +118,7 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 
 %check
 
-%if 35 > 0%{?fedora}
+%if %{rawhide} > 0%{?fedora}
 # tests are affected by an LLVM regression
 # https://bugs.llvm.org/show_bug.cgi?id=49401
 # https://github.com/ziglang/zig/issues/8130
