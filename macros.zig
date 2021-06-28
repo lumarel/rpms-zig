@@ -11,7 +11,7 @@
 
 %zig_install \
     DESTDIR="%{buildroot}" %zig_build \\\
-        install \\\ 
+        install \\\
         --prefix "%{_prefix}" \\\
         --prefix-lib-dir "%{_libdir}" \\\
         --prefix-exe-dir "%{_bindir}" \\\
