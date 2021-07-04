@@ -3,8 +3,7 @@
 %_zig_version @@ZIG_VERSION@@
 %zig /usr/bin/zig
 
-%zig_build \
-    %zig \\\
+%zig_build %zig \\\
         build \\\
         --verbose  \\\
         --cache-dir zig-cache
