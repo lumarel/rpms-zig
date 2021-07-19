@@ -7,7 +7,7 @@
 
 Name:           zig
 Version:        0.8.0
-Release:        5%{?dist}
+Release:        6%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
@@ -18,6 +18,9 @@ Source1:        macros.%{name}
 # https://github.com/ziglang/zig/pull/9020
 Patch0:         0001-specify-the-output-lib-exe-and-include-paths-with-fl.patch
 Patch1:         0002-zig-build-rename-lib-dir-include-dir-exe-dir.patch
+# https://github.com/ziglang/zig/commit/d128ec39df4c0a701523d7d7161df3808a6939d2
+# prevents zig from recursively calling itself
+Patch2:         0003-native-libc-detection-respect-spaces-in-CC-env-var.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -141,6 +144,9 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 %{_rpmconfigdir}/macros.d/macros.%{name}
 
 %changelog
+* Mon Jul 19 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.0-6
+- add native libc detection patch
+
 * Sun Jul 04 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.0-5
 - correct newline in macro that caused DESTDIR to be ignored
 
