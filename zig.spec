@@ -1,13 +1,29 @@
-# https://ziglang.org/download/0.8.0/release-notes.html#Support-Table
+# https://ziglang.org/download/0.8.1/release-notes.html#Support-Table
 # 32 bit builds currently run out of memory https://github.com/ziglang/zig/issues/6485
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 
+%if %{fedora} >= 35
+%bcond_without  llvm13
+
 # documentation and tests do not build due to an unsupported glibc version
-%global         rawhide     35
+%bcond_with     test
+%bcond_with     docs
+
+%global         llvm_version 13.0.0
+%else
+%bcond_with     llvm13
+
+%bcond_without  test
+%bcond_without  docs
+
+%global         llvm_version 12.0.0
+%endif
+%bcond_without  macro
+
 
 Name:           zig
-Version:        0.8.0
-Release:        8%{?dist}
+Version:        0.8.1
+Release:        1%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
@@ -18,9 +34,8 @@ Source1:        macros.%{name}
 # https://github.com/ziglang/zig/pull/9020
 Patch0:         0001-specify-the-output-lib-exe-and-include-paths-with-fl.patch
 Patch1:         0002-zig-build-rename-lib-dir-include-dir-exe-dir.patch
-# https://github.com/ziglang/zig/commit/d128ec39df4c0a701523d7d7161df3808a6939d2
-# prevents zig from recursively calling itself
-Patch2:         0003-native-libc-detection-respect-spaces-in-CC-env-var.patch
+
+Patch100:       0003-LLVM-13-rebase.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -30,30 +45,37 @@ BuildRequires:  clang-devel
 BuildRequires:  lld-devel
 # for man page generation
 BuildRequires:  help2man
-# for the macro
+
+%if %{with macro}
 BuildRequires:  sed
+%endif
+
+%if %{with test}
 # for testing
-#BuildRequires:  elfutils-libelf-devel
-#BuildRequires:  libstdc++-static
+BuildRequires:  elfutils-libelf-devel
+BuildRequires:  libstdc++-static
+%endif
 
 Requires:       %{name}-libs = %{version}
 
 # These packages are bundled as source
 
 # NCSA
-Provides: bundled(compiler-rt) = 12.0.0
+Provides: bundled(compiler-rt) = %{llvm_version}
 # LGPLv2+, LGPLv2+ with exceptions, GPLv2+, GPLv2+ with exceptions, BSD, Inner-Net, ISC, Public Domain and GFDL
 Provides: bundled(glibc) = 2.33
 # NCSA
-Provides: bundled(libcxx) = 12.0.0
+Provides: bundled(libcxx) = %{llvm_version}
 # NCSA
-Provides: bundled(libcxxabi) = 12.0.0
+Provides: bundled(libcxxabi) = %{llvm_version}
 # NCSA
-Provides: bundled(libunwind) = 12.0.0
+Provides: bundled(libunwind) = %{llvm_version}
 # BSD, LGPG, ZPL
-Provides: bundled(mingw) = 8.0.0
+Provides: bundled(mingw) = 9.0.0
 # MIT
 Provides: bundled(musl) = 1.2.2
+# CC0, BSD, MIT, Apache2, Apache2 with exceptions
+Provides: bundled(wasi-libc) = 82fc2c4f449e56319112f6f2583195c7f4e714b1
 
 ExclusiveArch: %{zig_arches}
 
@@ -69,6 +91,7 @@ BuildArch:      noarch
 %description libs
 Standard Zig library
 
+%if %{with docs}
 %package doc
 Summary:        Documentation for %{name}
 BuildArch:      noarch
@@ -76,7 +99,9 @@ Requires:       %{name} = %{version}
 
 %description doc
 Documentation for %{name}. For more information, visit %{url}
+%endif
 
+%if %{with macro}
 %package        rpm-macros
 Summary:        Common RPM macros for %{name}
 Requires:       rpm
@@ -84,9 +109,16 @@ BuildArch:      noarch
 
 %description    rpm-macros  
 This package contains common RPM macros for %{name}.
+%endif
 
 %prep
-%autosetup -p1
+%setup -q
+
+%patch0 -p1
+%patch1 -p1
+%if %{with llvm13}
+%patch100 -p1
+%endif
 
 %build
 
@@ -102,7 +134,7 @@ help2man --no-discard-stderr "%{__cmake_builddir}/zig" --version-option=version 
 
 ln -s lib "%{__cmake_builddir}/"
 
-%if %{rawhide} > 0%{?fedora}
+%if %{with docs}
 %{__cmake_builddir}/zig build docs -Dversion-string="%{version}"
 %endif
 mkdir -p zig-cache
@@ -121,11 +153,10 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 
 %check
 
-%if %{rawhide} > 0%{?fedora}
-# tests are affected by an LLVM regression
-# https://bugs.llvm.org/show_bug.cgi?id=49401
-# https://github.com/ziglang/zig/issues/8130
-# %%{__cmake_builddir}/zig build test
+%if %{with test}
+# Issues with tests stop them from completing successfully
+# https://github.com/ziglang/zig/issues/9738
+#%%{__cmake_builddir}/zig build test
 %endif
 
 %files
@@ -136,14 +167,21 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 %files libs
 %{_prefix}/lib/%{name}
 
+%if %{with docs}
 %files doc
 %doc README.md
 %doc zig-cache/langref.html
-    
+%endif
+
+%if %{with macro}
 %files rpm-macros
 %{_rpmconfigdir}/macros.d/macros.%{name}
+%endif
 
 %changelog
+* Sun Sep 12 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.1-1
+- Update to Zig 0.8.1, add LLVM 13 patch
+
 * Wed Aug 18 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.0-8
 - Rebuilt for lld soname bump
 

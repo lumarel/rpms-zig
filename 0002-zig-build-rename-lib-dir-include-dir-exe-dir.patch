@@ -1,18 +1,19 @@
-From c95b2bd1f14f602b78f90714d5e614251fa83552 Mon Sep 17 00:00:00 2001
+From 2128aaf02ac91cf07c449062c0cbffb3ab1fbe42 Mon Sep 17 00:00:00 2001
 From: Andrew Kelley <andrew@ziglang.org>
 Date: Mon, 14 Jun 2021 11:56:58 -0700
-Subject: [PATCH 2/2] zig build: rename --lib-dir, --include-dir, --exe-dir
+Subject: [PATCH 2/3] zig build: rename --lib-dir, --include-dir, --exe-dir
 
 To --prefix-lib-dir, --prefix-include-dir, --prefix-exe-dir,
 respectively.
 
+(cherry picked from commit 7d5538c32b7acfb6878be4178af2f71977d0cf9d)
 Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
 ---
- lib/std/special/build_runner.zig | 18 ++++++++++--------
- 1 file changed, 10 insertions(+), 8 deletions(-)
+ lib/std/special/build_runner.zig | 20 +++++++++++---------
+ 1 file changed, 11 insertions(+), 9 deletions(-)
 
 diff --git a/lib/std/special/build_runner.zig b/lib/std/special/build_runner.zig
-index da50548c6..f3c74279a 100644
+index d3f066a19..366a0a2dc 100644
 --- a/lib/std/special/build_runner.zig
 +++ b/lib/std/special/build_runner.zig
 @@ -89,17 +89,17 @@ pub fn main() !void {
@@ -36,24 +37,27 @@ index da50548c6..f3c74279a 100644
                  dir_list.include_dir = nextArg(args, &arg_idx) orelse {
                      warn("Expected argument after {s}\n\n", .{arg});
                      return usageAndErr(builder, false, stderr_stream);
-@@ -203,13 +203,15 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void
+@@ -215,15 +215,17 @@ fn usage(builder: *Builder, already_ran_build: bool, out_stream: anytype) !void
      try out_stream.writeAll(
          \\
          \\General Options:
+-        \\  -h, --help                  Print this help and exit
+-        \\  --verbose                   Print commands before executing them
+-        \\  -p, --prefix [path]         Override default install prefix
+-        \\  --lib-dir [path]            Override default library directory path
+-        \\  --exe-dir [path]            Override default executable directory path
+-        \\  --include-dir [path]        Override default include directory path
 +        \\  -p, --prefix         [path] Override default install prefix
 +        \\  --prefix-lib-dir     [path] Override default library directory path
 +        \\  --prefix-exe-dir     [path] Override default executable directory path
 +        \\  --prefix-include-dir [path] Override default include directory path
 +        \\
-+        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
+         \\  --sysroot [path]            Set the system root directory (usually /)
+         \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
+         \\  --libc [file]               Provide a file which specifies libc paths
 +        \\
-         \\  -h, --help                  Print this help and exit
-         \\  --verbose                   Print commands before executing them
--        \\  -p, --prefix [path]         Override default install prefix
--        \\  --lib-dir [path]            Override default library directory path
--        \\  --exe-dir [path]            Override default executable directory path
--        \\  --include-dir [path]        Override default include directory path
--        \\  --search-prefix [path]      Add a path to look for binaries, libraries, headers
++        \\  -h, --help                  Print this help and exit
++        \\  --verbose                   Print commands before executing them
          \\  --color [auto|off|on]       Enable or disable colored error messages
          \\
          \\Project-Specific Options:
