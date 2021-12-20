@@ -3,16 +3,10 @@
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 
 # note here at which Fedora release we need to deal with LLVM and glibc differences
-%global         fedora_llvm 35
-%global         fedora_glibc 36
+#%%global         fedora_llvm 35
+%global         fedora_glibc 37
 
-%if %{fedora} >= %{fedora_llvm}
-%bcond_without  llvm13
 %global         llvm_version 13.0.0
-%else
-%bcond_with     llvm13
-%global         llvm_version 12.0.0
-%endif
 
 %if %{fedora} >= %{fedora_glibc}
 # documentation and tests do not build due to an unsupported glibc version
@@ -27,20 +21,14 @@
 
 
 Name:           zig
-Version:        0.8.1
-Release:        5%{?dist}
+Version:        0.9.0
+Release:        1%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
 URL:            https://ziglang.org
 Source0:        https://github.com/ziglang/zig/archive/%{version}.tar.gz#/%{name}-%{version}.tar.gz
 Source1:        macros.%{name}
-
-# https://github.com/ziglang/zig/pull/9020
-Patch0:         0001-specify-the-output-lib-exe-and-include-paths-with-fl.patch
-Patch1:         0002-zig-build-rename-lib-dir-include-dir-exe-dir.patch
-
-Patch100:       0003-LLVM-13-rebase.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -119,12 +107,6 @@ This package contains common RPM macros for %{name}.
 %prep
 %setup -q
 
-%patch0 -p1
-%patch1 -p1
-%if %{with llvm13}
-%patch100 -p1
-%endif
-
 %build
 
 %cmake \
@@ -184,6 +166,9 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 %endif
 
 %changelog
+* Mon Dec 20 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.9.0-1
+- Update to 0.9.0
+
 * Wed Nov 17 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.8.1-5
 - Enable documentation on Fedora 35
 
