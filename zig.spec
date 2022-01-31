@@ -1,4 +1,4 @@
-# https://ziglang.org/download/0.8.1/release-notes.html#Support-Table
+# https://ziglang.org/download/%{version}/release-notes.html#Support-Table
 # 32 bit builds currently run out of memory https://github.com/ziglang/zig/issues/6485
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 
@@ -22,13 +22,16 @@
 
 Name:           zig
 Version:        0.9.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
 URL:            https://ziglang.org
 Source0:        https://github.com/ziglang/zig/archive/%{version}.tar.gz#/%{name}-%{version}.tar.gz
 Source1:        macros.%{name}
+# should prevent native directories from being in the rpath
+# https://github.com/ziglang/zig/pull/10621
+Patch0:         0001-ignore-target-lib-dirs-when-invoked-with-feach-lib-r.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -78,11 +81,11 @@ and clarity. This package provides the zig compiler and the associated runtime.
 
 # the standard library contains only plain text
 %package libs
-Summary:        zig standard library
+Summary:        %{name} Standard Library
 BuildArch:      noarch
 
 %description libs
-Standard Zig library
+%{name} Standard Library
 
 %if %{with docs}
 %package doc
@@ -105,7 +108,7 @@ This package contains common RPM macros for %{name}.
 %endif
 
 %prep
-%setup -q
+%autosetup -p1
 
 %build
 
@@ -166,8 +169,13 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 %endif
 
 %changelog
+* Thu Jan 27 2022 Jan Drögehoff <sentrycraft123@gmail.com> - 0.9.0-3
+- Jan: add rpath patch
+- Aleksei Bavshin: rpm macros: set default build flags
+
 * Sat Jan 22 2022 Fedora Release Engineering <releng@fedoraproject.org> - 0.9.0-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_36_Mass_Rebuild
+
 
 * Mon Dec 20 2021 Jan Drögehoff <sentrycraft123@gmail.com> - 0.9.0-1
 - Update to 0.9.0
