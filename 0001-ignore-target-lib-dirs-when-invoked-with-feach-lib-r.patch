@@ -1,40 +1,28 @@
-From ef02f49f11a80492cc3792fe573167a6aa743f52 Mon Sep 17 00:00:00 2001
+From d505ddbb7f46ba974b5d8458fd7134901930f033 Mon Sep 17 00:00:00 2001
 From: Jan200101 <sentrycraft123@gmail.com>
-Date: Thu, 20 Jan 2022 18:57:39 +0100
+Date: Thu, 17 Feb 2022 18:00:58 +0100
 Subject: [PATCH] ignore target lib dirs when invoked with -feach-lib-rpath
 
 Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
 ---
- src/link/Elf.zig | 15 +++++++++++++++
- 1 file changed, 15 insertions(+)
+ src/main.zig | 4 ----
+ 1 file changed, 4 deletions(-)
 
-diff --git a/src/link/Elf.zig b/src/link/Elf.zig
-index 24f8a02b9..9e27dc786 100644
---- a/src/link/Elf.zig
-+++ b/src/link/Elf.zig
-@@ -1551,7 +1551,22 @@ fn linkWithLLD(self: *Elf, comp: *Compilation) !void {
-         if (self.base.options.each_lib_rpath) {
-             var test_path = std.ArrayList(u8).init(self.base.allocator);
-             defer test_path.deinit();
-+
-+            const cross_target = std.zig.CrossTarget.fromTarget(target);
-+            const target_info = try std.zig.system.NativeTargetInfo.detect(self.base.allocator, cross_target);
-+            const native_paths = try std.zig.system.NativePaths.detect(self.base.allocator, target_info);
-+
-             for (self.base.options.lib_dirs) |lib_dir_path| {
-+                var is_target_lib_dir = false;
-+                for (native_paths.lib_dirs.items) |lib_dir| {
-+                    if (mem.eql(u8, lib_dir, lib_dir_path)) {
-+                        is_target_lib_dir = true;
-+                        break;
-+                    }
-+                }
-+                if (is_target_lib_dir) {
-+                    continue;
-+                }
-                 for (self.base.options.system_libs.keys()) |link_lib| {
-                     test_path.clearRetainingCapacity();
-                     const sep = fs.path.sep_str;
+diff --git a/src/main.zig b/src/main.zig
+index 7f50a7de6..a6bcf69a8 100644
+--- a/src/main.zig
++++ b/src/main.zig
+@@ -2077,10 +2077,6 @@ fn buildOutputType(
+             clang_argv.appendAssumeCapacity(framework_dir);
+             framework_dirs.appendAssumeCapacity(framework_dir);
+         }
+-
+-        for (paths.lib_dirs.items) |lib_dir| {
+-            try lib_dirs.append(lib_dir);
+-        }
+         for (paths.rpaths.items) |rpath| {
+             try rpath_list.append(rpath);
+         }
 -- 
-2.34.1
+2.35.1
 
