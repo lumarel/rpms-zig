@@ -3,10 +3,15 @@
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 
 # note here at which Fedora release we need to deal with LLVM and glibc differences
-#%%global         fedora_llvm 35
-%global         fedora_glibc 37
+%global         fedora_llvm 36
+# TODO check if this is still relevant
+%global         fedora_glibc 38
 
 %global         llvm_version 13.0.0
+
+%if %{fedora} >= %{fedora_llvm}
+%define         llvm_compat 13
+%endif
 
 %if %{fedora} >= %{fedora_glibc}
 # documentation and tests do not build due to an unsupported glibc version
@@ -29,20 +34,20 @@ License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ 
 URL:            https://ziglang.org
 Source0:        https://github.com/ziglang/zig/archive/%{version}.tar.gz#/%{name}-%{version}.tar.gz
 Source1:        macros.%{name}
-# should prevent native directories from being in the rpath
+# prevent native directories from polluting the rpath
 # https://github.com/ziglang/zig/pull/10621
 Patch0:         0001-ignore-target-lib-dirs-when-invoked-with-feach-lib-r.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  cmake
-BuildRequires:  llvm-devel
-BuildRequires:  clang-devel
-BuildRequires:  lld-devel
+BuildRequires:  llvm%{?llvm_compat}-devel
+BuildRequires:  clang%{?llvm_compat}-devel
+BuildRequires:  lld%{?llvm_compat}-devel
 # for man page generation
 BuildRequires:  help2man
 
-%if %{with macro}
+%if %{with macro} || 0%{?llvm_compat}
 BuildRequires:  sed
 %endif
 
@@ -59,7 +64,7 @@ Requires:       %{name}-libs = %{version}
 # NCSA
 Provides: bundled(compiler-rt) = %{llvm_version}
 # LGPLv2+, LGPLv2+ with exceptions, GPLv2+, GPLv2+ with exceptions, BSD, Inner-Net, ISC, Public Domain and GFDL
-Provides: bundled(glibc) = 2.33
+Provides: bundled(glibc) = 2.34
 # NCSA
 Provides: bundled(libcxx) = %{llvm_version}
 # NCSA
@@ -109,6 +114,10 @@ This package contains common RPM macros for %{name}.
 
 %prep
 %autosetup -p1
+
+%if 0%{?llvm_compat}
+    sed -i "s|/usr/lib/llvm-13|%{_libdir}/llvm%{llvm_compat}|g" cmake/Find{clang,lld,llvm}.cmake
+%endif
 
 %build
 
