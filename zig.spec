@@ -1,6 +1,8 @@
 # https://ziglang.org/download/%{version}/release-notes.html#Support-Table
 # 32 bit builds currently run out of memory https://github.com/ziglang/zig/issues/6485
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
+# Signing key from https://ziglang.org/download/
+%global         public_key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
 %global         llvm_version 13.0.0
 %define         llvm_compat 13
@@ -19,13 +21,14 @@
 
 Name:           zig
 Version:        0.9.1
-Release:        5%{?dist}
+Release:        6%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
 URL:            https://ziglang.org
-Source0:        https://github.com/ziglang/zig/archive/%{version}.tar.gz#/%{name}-%{version}.tar.gz
-Source1:        macros.%{name}
+Source0:        %{url}/download/%{version}/%{name}-%{version}.tar.xz
+Source1:        %{url}/download/%{version}/%{name}-%{version}.tar.xz.minisig
+Source2:        macros.%{name}
 # prevent native directories from polluting the rpath
 # https://github.com/ziglang/zig/pull/10621
 Patch0:         0001-ignore-target-lib-dirs-when-invoked-with-feach-lib-r.patch
@@ -38,6 +41,8 @@ BuildRequires:  clang%{?llvm_compat}-devel
 BuildRequires:  lld%{?llvm_compat}-devel
 # for man page generation
 BuildRequires:  help2man
+# for signature verification
+BuildRequires:  minisign
 
 %if %{with macro} || 0%{?llvm_compat}
 BuildRequires:  sed
@@ -105,6 +110,8 @@ This package contains common RPM macros for %{name}.
 %endif
 
 %prep
+/usr/bin/minisign -V -m %{SOURCE0} -x %{SOURCE1} -P %{public_key}
+
 %autosetup -p1
 
 %if 0%{?llvm_compat}
@@ -139,7 +146,7 @@ install -m 0644 %{name}.1 %{buildroot}%{_mandir}/man1/
 
 mkdir -p %{buildroot}%{_rpmconfigdir}/macros.d/
 
-install -p -m644 %{SOURCE1} %{buildroot}%{_rpmconfigdir}/macros.d/
+install -p -m644 %{SOURCE2} %{buildroot}%{_rpmconfigdir}/macros.d/
 sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d/macros.%{name}
 
 %check
@@ -170,6 +177,9 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 %endif
 
 %changelog
+* Sat Jan 27 2024 Benson Muite <benson_muite@emailplus.org> - 0.9.1-6
+- Verify source signature
+
 * Sat Jan 27 2024 Fedora Release Engineering <releng@fedoraproject.org> - 0.9.1-5
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_40_Mass_Rebuild
 
