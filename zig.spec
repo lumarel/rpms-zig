@@ -9,15 +9,15 @@
 
 %if 0%{?fedora} >= 38
 # documentation and tests do not build due to an unsupported glibc version
-%bcond_with     test
 %bcond_with     docs
 %else
-%bcond_without  test
 %bcond_without  docs
 %endif
 
 %bcond_without  macro
-
+# Issues with tests stop them from completing successfully
+# https://github.com/ziglang/zig/issues/9738
+%bcond_with     test
 
 Name:           zig
 Version:        0.9.1
@@ -133,28 +133,22 @@ help2man --no-discard-stderr "%{__cmake_builddir}/zig" --version-option=version 
 ln -s lib "%{__cmake_builddir}/"
 
 %if %{with docs}
-%{__cmake_builddir}/zig build docs -Dversion-string="%{version}"
+%{__cmake_builddir}/zig build docs --verbose -Dversion-string="%{version}"
 %endif
-mkdir -p zig-cache
-touch zig-cache/langref.html
 
 %install
 %cmake_install
 
-mkdir -p %{buildroot}/%{_mandir}/man1
-install -m 0644 %{name}.1 %{buildroot}%{_mandir}/man1/
+install -D -pv -m 0644 -t %{buildroot}%{_mandir}/man1/ %{name}.1
 
-mkdir -p %{buildroot}%{_rpmconfigdir}/macros.d/
-
-install -p -m644 %{SOURCE2} %{buildroot}%{_rpmconfigdir}/macros.d/
-sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d/macros.%{name}
-
-%check
+%if %{with macro}
+install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
+sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmmacrodir}/macros.%{name}
+%endif
 
 %if %{with test}
-# Issues with tests stop them from completing successfully
-# https://github.com/ziglang/zig/issues/9738
-#%%{__cmake_builddir}/zig build test
+%check
+%{__cmake_builddir}/zig build test --verbose
 %endif
 
 %files
@@ -173,10 +167,14 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmconfigdir}/macros.d
 
 %if %{with macro}
 %files rpm-macros
-%{_rpmconfigdir}/macros.d/macros.%{name}
+%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Sat Jan 27 2024 Aleksei Bavshin <alebastr@fedoraproject.org> - 0.9.1-6
+- Fix build with `--without macro`
+- Skip %%check and test dependencies when tests are disabled
+
 * Sat Jan 27 2024 Benson Muite <benson_muite@emailplus.org> - 0.9.1-6
 - Verify source signature
 
