@@ -44,7 +44,7 @@ BuildRequires:  help2man
 # for signature verification
 BuildRequires:  minisign
 
-%if %{with macro} || 0%{?llvm_compat}
+%if 0%{?llvm_compat}
 BuildRequires:  sed
 %endif
 
@@ -143,7 +143,6 @@ install -D -pv -m 0644 -t %{buildroot}%{_mandir}/man1/ %{name}.1
 
 %if %{with macro}
 install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
-sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %if %{with test}
@@ -174,6 +173,7 @@ sed -i -e "s|@@ZIG_VERSION@@|%{version}|"  %{buildroot}%{_rpmmacrodir}/macros.%{
 * Sat Jan 27 2024 Aleksei Bavshin <alebastr@fedoraproject.org> - 0.9.1-6
 - Fix build with `--without macro`
 - Skip %%check and test dependencies when tests are disabled
+- Drop %%_zig_version macro
 
 * Sat Jan 27 2024 Benson Muite <benson_muite@emailplus.org> - 0.9.1-6
 - Verify source signature

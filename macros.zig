@@ -1,6 +1,5 @@
 %zig_arches x86_64 aarch64 riscv64 %{mips64}
 
-%_zig_version @@ZIG_VERSION@@
 %zig /usr/bin/zig
 
 # expected features for each arch when targeting baseline
