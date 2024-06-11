@@ -17,7 +17,7 @@
 
 Name:           zig
 Version:        0.13.0
-Release:        0%{?dist}
+Release:        1%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
@@ -192,6 +192,9 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Tue Jun 11 2024 Jan200101 <sentrycraft123@gmail.com> - 0.13.0-1
+- Update to 0.13.0
+
 * Sat Jun 08 2024 Jan200101 <sentrycraft123@gmail.com> - 0.12.1-1
 - Update to 0.12.1
 
