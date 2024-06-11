@@ -1,25 +1,23 @@
-# https://ziglang.org/download/%{version}/release-notes.html#Support-Table
-# 32 bit builds currently run out of memory https://github.com/ziglang/zig/issues/6485
+# https://ziglang.org/download/VERSION/release-notes.html#Support-Table
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
 # Signing key from https://ziglang.org/download/
 %global         public_key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
 # note here at which Fedora or EL release we need to use compat LLVM packages
-%if 0%{?fedora} >= 39 || 0%{?rhel} >= 9
-%define         llvm_compat 16
+%if 0%{?fedora} >= 40 || 0%{?rhel} >= 9
+%define         llvm_compat 17
 %endif
 
-%global         llvm_version 16.0.0
-
+%global         llvm_version 17.0.0
 
 %bcond bootstrap 0
-%bcond docs     %{without bootstrap}
-%bcond macro    %{without bootstrap}
-%bcond test     1
+%bcond docs      %{without bootstrap}
+%bcond macro     %{without bootstrap}
+%bcond test      1
 
 Name:           zig
-Version:        0.11.0
-Release:        2%{?dist}
+Version:        0.12.0
+Release:        1%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
@@ -32,6 +30,9 @@ Patch:          0001-Fedora-bootstrap-and-extra-build-flags-support.patch
 # There's no global option for build-id so enable it by default
 # instead of patching every project's build.zig
 Patch:          0002-Enable-build-id-by-default.patch
+# Zig fetch will recurse onto the cache directory, prevent that from happening.
+# https://github.com/ziglang/zig/pull/19951
+Patch:          0003-fetch-prevent-global-cache-from-being-copied.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -62,7 +63,7 @@ Requires:       %{name}-libs = %{version}
 # Apache-2.0 WITH LLVM-exception OR NCSA OR MIT
 Provides: bundled(compiler-rt) = %{llvm_version}
 # LGPLv2+, LGPLv2+ with exceptions, GPLv2+, GPLv2+ with exceptions, BSD, Inner-Net, ISC, Public Domain and GFDL
-Provides: bundled(glibc) = 2.34
+Provides: bundled(glibc) = 2.38
 # Apache-2.0 WITH LLVM-exception OR MIT OR NCSA
 Provides: bundled(libcxx) = %{llvm_version}
 # Apache-2.0 WITH LLVM-exception OR MIT OR NCSA
@@ -70,7 +71,7 @@ Provides: bundled(libcxxabi) = %{llvm_version}
 # NCSA
 Provides: bundled(libunwind) = %{llvm_version}
 # BSD, LGPG, ZPL
-Provides: bundled(mingw) = 10.0.0
+Provides: bundled(mingw) = 0bac2d3cdb122dadcdee90009f7e24a69d56939f
 # MIT
 Provides: bundled(musl) = 1.2.4
 # Apache-2.0 WITH LLVM-exception AND Apache-2.0 AND MIT AND BSD-2-Clause
@@ -126,10 +127,14 @@ rm -f stage1/zig1.wasm
     -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo \
     -DCMAKE_C_FLAGS_RELWITHDEBINFO:STRING="-DNDEBUG -Wno-unused" \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING="-DNDEBUG -Wno-unused" \
+    \
     -DZIG_EXTRA_BUILD_ARGS:STRING="--verbose;-Dbuild-id=sha1" \
     -DZIG_SHARED_LLVM:BOOL=true \
+    -DZIG_PIE:BOOL=true \
+    \
     -DZIG_TARGET_MCPU:STRING=baseline \
     -DZIG_TARGET_TRIPLE:STRING=native \
+    \
     -DZIG_VERSION:STRING="%{version}" \
     %{!?with_bootstrap:-DZIG_EXECUTABLE:STRING="/usr/bin/zig"}
 # Build only stage3 and dependencies. Skips stage1/2 if using /usr/bin/zig
@@ -140,7 +145,10 @@ rm -f stage1/zig1.wasm
 help2man --no-discard-stderr --no-info "%{__cmake_builddir}/stage3/bin/zig" --version-option=version --output=%{name}.1
 
 %if %{with docs}
-"%{__cmake_builddir}/stage3/bin/zig" build docs --verbose -Dversion-string="%{version}"
+"%{__cmake_builddir}/stage3/bin/zig" build docs \
+    --verbose \
+    --global-cache-dir zig-cache \
+    -Dversion-string="%{version}"
 %endif
 
 %install
@@ -179,6 +187,9 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Sat May 25 2024 Jan200101 <sentrycraft123@gmail.com> - 0.12.0-1
+- Update to 0.12.0
+
 * Wed Feb 21 2024 Jan Drögehoff <sentrycraft123@gmail.com> - 0.11.0-2
 - Rebuilt for bootstrapping
 

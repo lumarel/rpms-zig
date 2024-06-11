@@ -1,25 +1,23 @@
-From 4e1416ebff98155b07031790ec1afcb0035fb2ab Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Aleksei Bavshin <alebastr89@gmail.org>
 Date: Fri, 20 Oct 2023 04:49:54 +0000
-Subject: [PATCH 2/2] Enable build-id by default
+Subject: [PATCH] Enable build-id by default
 
+Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
 ---
  src/Compilation.zig | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/src/Compilation.zig b/src/Compilation.zig
-index a08c3e09f..95ade766a 100644
+index 7af3d7bfd1..78bc2b65c8 100644
 --- a/src/Compilation.zig
 +++ b/src/Compilation.zig
-@@ -807,7 +807,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
-         const unwind_tables = options.want_unwind_tables orelse
-             (link_libunwind or target_util.needUnwindTables(options.target));
-         const link_eh_frame_hdr = options.link_eh_frame_hdr or unwind_tables;
+@@ -1230,7 +1230,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
+         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
+ 
+         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
 -        const build_id = options.build_id orelse .none;
 +        const build_id = options.build_id orelse .sha1;
  
-         // Make a decision on whether to use LLD or our own linker.
-         const use_lld = options.use_lld orelse blk: {
--- 
-2.41.0
-
+         const link_libc = options.config.link_libc;
+ 

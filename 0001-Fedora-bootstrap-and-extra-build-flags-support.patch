@@ -1,29 +1,31 @@
-From 83a3cf50d81b65809d4a4619502295b4b5ff8636 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Aleksei Bavshin <alebastr89@gmail.org>
 Date: Fri, 20 Oct 2023 04:49:46 +0000
-Subject: [PATCH 1/2] Fedora: bootstrap and extra build flags support
+Subject: [PATCH] Fedora: bootstrap and extra build flags support
 
 - Allow passing ZIG_EXTRA_BUILD_FLAGS for stage3 build.
 - Allow redefining ZIG_EXECUTABLE and short-circuiting to stage3 build
   when using a prebuilt compiler from bootstrap package.
 - Bump required CMake version to 3.14 to enable generator expression
   expansion in `install(CODE ...)`.
+
+Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
 ---
  CMakeLists.txt | 16 ++++++++--------
  1 file changed, 8 insertions(+), 8 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index f1289e20b..031654dee 100644
+index e677ee0947..1fb4821b60 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1,4 +1,4 @@
 -cmake_minimum_required(VERSION 3.5)
 +cmake_minimum_required(VERSION 3.14)
+ include(CheckSymbolExists)
  
  if(NOT CMAKE_BUILD_TYPE)
-     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
-@@ -859,6 +859,10 @@ else()
-   set(ZIG_PIE_ARG "")
+@@ -910,6 +910,10 @@ else()
+   set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
  endif()
  
 +# Fedora customizations
@@ -31,17 +33,17 @@ index f1289e20b..031654dee 100644
 +set(ZIG_EXECUTABLE "$<TARGET_FILE:zig2>" CACHE STRING "Compiler command to use for stage3 build")
 +
  # -Dno-langref is currently hardcoded because building the langref takes too damn long
- # -Dno-autodocs is currently hardcoded because the C backend generates a miscompilation
- #   that prevents it from working.
-@@ -877,6 +881,7 @@ set(ZIG_BUILD_ARGS
-   "-Dtarget=${ZIG_TARGET_TRIPLE}"
+ # To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
+ set(ZIG_BUILD_ARGS
+@@ -926,6 +930,7 @@ set(ZIG_BUILD_ARGS
    "-Dcpu=${ZIG_TARGET_MCPU}"
+   ${ZIG_DYNAMIC_LINKER_ARG}
    "-Dversion-string=${RESOLVED_ZIG_VERSION}"
 +  ${ZIG_EXTRA_BUILD_ARGS}
  )
  
  add_custom_target(stage3 ALL
-@@ -885,17 +890,12 @@ add_custom_target(stage3 ALL
+@@ -934,17 +939,12 @@ add_custom_target(stage3 ALL
  
  add_custom_command(
    OUTPUT "${CMAKE_BINARY_DIR}/stage3/bin/zig"
@@ -61,6 +63,3 @@ index f1289e20b..031654dee 100644
  install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
  install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")
  install(CODE "set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")")
--- 
-2.41.0
-
