@@ -16,7 +16,7 @@
 %bcond test      1
 
 Name:           zig
-Version:        0.12.0
+Version:        0.12.1
 Release:        1%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
@@ -187,6 +187,9 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Sat Jun 08 2024 Jan200101 <sentrycraft123@gmail.com> - 0.12.1-1
+- Update to 0.12.1
+
 * Sat May 25 2024 Jan200101 <sentrycraft123@gmail.com> - 0.12.0-1
 - Update to 0.12.0
 
