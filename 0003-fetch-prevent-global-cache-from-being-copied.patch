@@ -9,10 +9,10 @@ Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
  1 file changed, 21 insertions(+), 12 deletions(-)
 
 diff --git a/src/Package/Fetch.zig b/src/Package/Fetch.zig
-index 506075e921..ca11f4c579 100644
+index f45a5cc93e..f21409ae76 100644
 --- a/src/Package/Fetch.zig
 +++ b/src/Package/Fetch.zig
-@@ -1248,6 +1248,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
+@@ -1343,6 +1343,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
  
  fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
      const gpa = f.arena.child_allocator;
@@ -20,7 +20,7 @@ index 506075e921..ca11f4c579 100644
      // Recursive directory copy.
      var it = try dir.walk(gpa);
      defer it.deinit();
-@@ -1255,18 +1256,26 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void
+@@ -1350,18 +1351,26 @@ fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void
          switch (entry.kind) {
              .directory => {}, // omit empty directories
              .file => {

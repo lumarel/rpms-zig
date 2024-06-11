@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jan200101 <sentrycraft123@gmail.com>
+Date: Tue, 11 Jun 2024 13:35:37 +0200
+Subject: [PATCH] remove native lib directories from rpath
+
+Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
+---
+ src/main.zig | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/main.zig b/src/main.zig
+index 21f7281d74..854dfb48cc 100644
+--- a/src/main.zig
++++ b/src/main.zig
+@@ -3740,6 +3740,15 @@ fn createModule(
+             try create_module.framework_dirs.appendSlice(arena, paths.framework_dirs.items);
+             try create_module.lib_dirs.appendSlice(arena, paths.lib_dirs.items);
+             try create_module.rpath_list.appendSlice(arena, paths.rpaths.items);
++
++            for (paths.lib_dirs.items) |native_lib_dir| {
++                for (0.., create_module.rpath_list.items) |i, rpath_dir| {
++                    if (std.mem.eql(u8, native_lib_dir, rpath_dir)) {
++                        _ = create_module.rpath_list.orderedRemove(i);
++                        break;
++                    }
++                }
++            }
+         }
+ 
+         if (create_module.libc_paths_file) |paths_file| {

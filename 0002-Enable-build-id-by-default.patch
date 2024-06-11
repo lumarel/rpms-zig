@@ -9,7 +9,7 @@ Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/src/Compilation.zig b/src/Compilation.zig
-index 7af3d7bfd1..78bc2b65c8 100644
+index 507cbfc6d5..d946956b05 100644
 --- a/src/Compilation.zig
 +++ b/src/Compilation.zig
 @@ -1230,7 +1230,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil

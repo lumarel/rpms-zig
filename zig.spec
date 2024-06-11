@@ -4,11 +4,11 @@
 %global         public_key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
 # note here at which Fedora or EL release we need to use compat LLVM packages
-%if 0%{?fedora} >= 40 || 0%{?rhel} >= 9
-%define         llvm_compat 17
+%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
+%define         llvm_compat 18
 %endif
 
-%global         llvm_version 17.0.0
+%global         llvm_version 18.0.0
 
 %bcond bootstrap 0
 %bcond docs      %{without bootstrap}
@@ -16,8 +16,8 @@
 %bcond test      1
 
 Name:           zig
-Version:        0.12.1
-Release:        1%{?dist}
+Version:        0.13.0
+Release:        0%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
@@ -33,6 +33,11 @@ Patch:          0002-Enable-build-id-by-default.patch
 # Zig fetch will recurse onto the cache directory, prevent that from happening.
 # https://github.com/ziglang/zig/pull/19951
 Patch:          0003-fetch-prevent-global-cache-from-being-copied.patch
+# Fix broken PIE capability detection
+# https://github.com/ziglang/zig/pull/20072
+Patch:          0004-cmake-correct-PIE-support-detection-add-error-output.patch
+# Remove native libr directories from rpath
+Patch:          0005-remove-native-lib-directories-from-rpath.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++

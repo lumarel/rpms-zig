@@ -11,55 +11,49 @@ Subject: [PATCH] Fedora: bootstrap and extra build flags support
 
 Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
 ---
- CMakeLists.txt | 16 ++++++++--------
- 1 file changed, 8 insertions(+), 8 deletions(-)
+ CMakeLists.txt | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index e677ee0947..1fb4821b60 100644
+index 22051f1902..06df068919 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1,4 +1,4 @@
--cmake_minimum_required(VERSION 3.5)
-+cmake_minimum_required(VERSION 3.14)
- include(CheckSymbolExists)
- 
- if(NOT CMAKE_BUILD_TYPE)
-@@ -910,6 +910,10 @@ else()
-   set(ZIG_DYNAMIC_LINKER_ARG "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
+@@ -922,6 +922,9 @@ if(MSVC OR MINGW)
+     target_link_libraries(zig2 LINK_PUBLIC version)
  endif()
  
 +# Fedora customizations
 +set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra flags for stage3 build")
 +set(ZIG_EXECUTABLE "$<TARGET_FILE:zig2>" CACHE STRING "Compiler command to use for stage3 build")
-+
- # -Dno-langref is currently hardcoded because building the langref takes too damn long
+ 
+ # "-Dno-langref" and "-Dstd-docs=false" are hardcoded because they take too long to build.
  # To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
- set(ZIG_BUILD_ARGS
-@@ -926,6 +930,7 @@ set(ZIG_BUILD_ARGS
-   "-Dcpu=${ZIG_TARGET_MCPU}"
-   ${ZIG_DYNAMIC_LINKER_ARG}
-   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
+@@ -937,6 +940,8 @@ set(ZIG_BUILD_ARGS
+ 
+   -Dno-langref
+   -Dstd-docs=false
++
 +  ${ZIG_EXTRA_BUILD_ARGS}
  )
  
- add_custom_target(stage3 ALL
-@@ -934,17 +939,12 @@ add_custom_target(stage3 ALL
+ if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+@@ -976,17 +981,12 @@ set(ZIG2_WORKING_DIR "${PROJECT_SOURCE_DIR}")
  
  add_custom_command(
-   OUTPUT "${CMAKE_BINARY_DIR}/stage3/bin/zig"
--  COMMAND zig2 build --prefix "${CMAKE_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
-+  COMMAND ${ZIG_EXECUTABLE} build --prefix "${CMAKE_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
+   OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/zig"
+-  COMMAND zig2 build --prefix "${PROJECT_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
++  COMMAND ${ZIG_EXECUTABLE} build --prefix "${PROJECT_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
    COMMENT STATUS "Building stage3"
 +  DEPENDS zigcpp
-   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+   WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"
  )
  
 -if(WIN32)
--  set(ZIG_EXECUTABLE "${CMAKE_BINARY_DIR}/zig2.exe")
+-  set(ZIG_EXECUTABLE "${PROJECT_BINARY_DIR}/zig2.exe")
 -else()
--  set(ZIG_EXECUTABLE "${CMAKE_BINARY_DIR}/zig2")
+-  set(ZIG_EXECUTABLE "${PROJECT_BINARY_DIR}/zig2")
 -endif()
 -
  install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
  install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")
- install(CODE "set(CMAKE_INSTALL_PREFIX \"${CMAKE_INSTALL_PREFIX}\")")
+ install(CODE "set(ZIG2_WORKING_DIR \"${ZIG2_WORKING_DIR}\")")
