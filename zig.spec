@@ -17,10 +17,11 @@
 
 Name:           zig
 Version:        0.13.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
-License:        MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1
+# Automatically converted from old format: MIT and NCSA and LGPLv2+ and LGPLv2+ with exceptions and GPLv2+ and GPLv2+ with exceptions and BSD and Inner-Net and ISC and Public Domain and GFDL and ZPLv2.1 - review is highly recommended.
+License:        LicenseRef-Callaway-MIT AND NCSA AND LicenseRef-Callaway-LGPLv2+ AND LGPL-2.1-or-later WITH Qwt-exception-1.0 AND GPL-2.0-or-later AND LicenseRef-Callaway-GPLv2+-with-exceptions AND LicenseRef-Callaway-BSD AND Inner-Net-2.0 AND ISC AND LicenseRef-Callaway-Public-Domain AND LicenseRef-Callaway-GFDL AND ZPL-2.1
 URL:            https://ziglang.org
 Source0:        %{url}/download/%{version}/%{name}-%{version}.tar.xz
 Source1:        %{url}/download/%{version}/%{name}-%{version}.tar.xz.minisig
@@ -192,6 +193,9 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Wed Sep 04 2024 Miroslav Suchý <msuchy@redhat.com> - 0.13.0-3
+- convert license to SPDX
+
 * Sat Jul 20 2024 Fedora Release Engineering <releng@fedoraproject.org> - 0.13.0-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_41_Mass_Rebuild
 
