@@ -2,7 +2,7 @@
 
 %zig %{_bindir}/zig
 
-%_zig_cache_dir zig-cache
+%_zig_cache_dir %{builddir}/zig-cache
 
 # expected features for each arch when targeting baseline
 # found in https://github.com/ziglang/zig/tree/master/lib/std/target
@@ -25,10 +25,10 @@
 # seperated build options
 %_zig_general_options --verbose --release=%{_zig_release_mode}
 %_zig_project_options -Dtarget=%{_zig_target} -Dcpu=%{_zig_cpu}
-%_zig_system_integration --system %{_zig_cache_dir}
+%_zig_system_integration --system %{_zig_cache_dir}/p
 %_zig_advanced_options --cache-dir %{_zig_cache_dir} --global-cache-dir %{_zig_cache_dir}
 
-%_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?%_zig_system_integration} %{?_zig_advanced_options}
+%_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?_zig_system_integration} %{?_zig_advanced_options}
 %_zig_install_options --prefix "%{_prefix}" --prefix-lib-dir "%{_libdir}" --prefix-exe-dir "%{_bindir}" --prefix-include-dir "%{_includedir}"
 %_zig_fetch_options --global-cache-dir %{_zig_cache_dir}
 
