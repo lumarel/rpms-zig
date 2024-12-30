@@ -17,7 +17,7 @@
 
 Name:           zig
 Version:        0.13.0
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT AND NCSA AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0 AND GPL-2.0-or-later AND GPL-2.0-or-later WITH GCC-exception-2.0 AND BSD-3-Clause AND Inner-Net-2.0 AND ISC AND LicenseRef-Fedora-Public-Domain AND GFDL-1.1-or-later AND ZPL-2.1
@@ -192,6 +192,11 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Sun Dec 29 2024 Jan200101 <sentrycraft123@gmail.com> - 0.13.0-4
+- correct macro variables
+- set llvm_compat for F41
+- update callaway licenses to follow SPDX
+
 * Wed Sep 04 2024 Miroslav Suchý <msuchy@redhat.com> - 0.13.0-3
 - convert license to SPDX
 
