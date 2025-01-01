@@ -5,25 +5,26 @@
 %_zig_cache_dir %{builddir}/zig-cache
 
 # expected features for each arch when targeting baseline
-# found in https://github.com/ziglang/zig/tree/master/lib/std/target
+# found in https://github.com/ziglang/zig/tree/master/lib/std/Target
 #
 # aarch64:
-#   ete, fuse_aes, neon, perfmon, use_postra_scheduler,
+#   enable_select_opt, ete, fuse_adrp_add, fuse_aes, neon, use_postra_scheduler,
 #
 # x86_64:
-#   cx8 idivq_to_divl macrofusion slow_3ops_lea slow_incdec vzeroupper x87
+#   cmov, cx8, fxsr, idivq_to_divl, macrofusion, mmx, nopl, slow_3ops_lea, slow_incdec, sse2, vzeroupper, x87
 #
 # riscv64:
-#   a, c, d, m
+#   a, c, d, i, m
 #
 # mips64:
-#   mips32
+#   mips64r2
+#
 %_zig_cpu baseline
 %_zig_target native
 %_zig_release_mode safe
 
 # seperated build options
-%_zig_general_options --verbose --release=%{_zig_release_mode}
+%_zig_general_options --verbose --release=%{_zig_release_mode} --summary all
 %_zig_project_options -Dtarget=%{_zig_target} -Dcpu=%{_zig_cpu}
 %_zig_system_integration --system %{_zig_cache_dir}/p
 %_zig_advanced_options --cache-dir %{_zig_cache_dir} --global-cache-dir %{_zig_cache_dir}
