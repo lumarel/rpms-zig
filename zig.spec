@@ -42,7 +42,7 @@ Patch:          0005-remove-native-lib-directories-from-rpath.patch
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  cmake
-BuildRequires:  llvm%{?llvm_compat}-devel
+BuildRequires:  llvm%{?llvm_compat}-devel = 18.1.8-3.full.el9
 BuildRequires:  clang%{?llvm_compat}-devel
 BuildRequires:  lld%{?llvm_compat}-devel
 BuildRequires:  zlib-devel
