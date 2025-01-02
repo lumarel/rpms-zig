@@ -10,7 +10,7 @@
 
 %global         llvm_version 18.0.0
 
-%bcond bootstrap 0
+%bcond bootstrap 1
 %bcond docs      %{without bootstrap}
 %bcond macro     %{without bootstrap}
 %bcond test      1
