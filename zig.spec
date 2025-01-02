@@ -4,8 +4,8 @@
 %global         public_key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
 # note here at which Fedora or EL release we need to use compat LLVM packages
-%if 0%{?fedora} >= 42 || 0%{?rhel} >= 9
-%define         llvm_compat 19
+%if 0%{?fedora} >= 41
+%define         llvm_compat 18
 %endif
 
 %global         llvm_version 19.0.0
