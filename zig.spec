@@ -44,7 +44,7 @@
 
 Name:           zig
 Version:        0.13.0
-Release:        7%{?dist}
+Release:        8%{?dist}
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
 License:        MIT AND NCSA AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0 AND GPL-2.0-or-later AND GPL-2.0-or-later WITH GCC-exception-2.0 AND BSD-3-Clause AND Inner-Net-2.0 AND ISC AND LicenseRef-Fedora-Public-Domain AND GFDL-1.1-or-later AND ZPL-2.1
@@ -232,6 +232,11 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %endif
 
 %changelog
+* Mon Jan 27 2025 Jan200101 <sentrycraft123@gmail.com> - 0.13.0-8
+- specify to build against local zig stdlib directory to ensure we are building against the newest stdlib
+- use release fast instead of release safe to fix aarch64 builds from running out of memory
+- enable position independent executable for the zig build
+
 * Mon Jan 27 2025 Jan200101 <sentrycraft123@gmail.com> - 0.13.0-7
 - build stage 3 using zig build system
 - add user provided options to the end of the build and install options
