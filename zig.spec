@@ -30,9 +30,6 @@ Patch:          0001-Fedora-bootstrap-and-extra-build-flags-support.patch
 # There's no global option for build-id so enable it by default
 # instead of patching every project's build.zig
 Patch:          0002-Enable-build-id-by-default.patch
-# Zig fetch will recurse onto the cache directory, prevent that from happening.
-# https://github.com/ziglang/zig/pull/19951
-Patch:          0003-fetch-prevent-global-cache-from-being-copied.patch
 # Fix broken PIE capability detection
 # https://github.com/ziglang/zig/pull/20072
 Patch:          0004-cmake-correct-PIE-support-detection-add-error-output.patch
