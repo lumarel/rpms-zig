@@ -30,8 +30,8 @@
 %_zig_system_integration --system "%{_zig_package_dir}"
 %_zig_advanced_options --cache-dir "%{_zig_cache_dir}" --global-cache-dir "%{_zig_cache_dir}"
 
-%_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?_zig_system_integration} %{?_zig_advanced_options}
-%_zig_install_options --prefix "%{_prefix}" --prefix-lib-dir "%{_libdir}" --prefix-exe-dir "%{_bindir}" --prefix-include-dir "%{_includedir}"
+%_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?_zig_system_integration} %{?_zig_advanced_options} %{?zig_build_options}
+%_zig_install_options --prefix "%{_prefix}" --prefix-lib-dir "%{_libdir}" --prefix-exe-dir "%{_bindir}" --prefix-include-dir "%{_includedir}" %{?zig_install_options}
 %_zig_fetch_options --global-cache-dir %{_zig_cache_dir}
 
 
