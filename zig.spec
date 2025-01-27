@@ -15,6 +15,31 @@
 %bcond macro     %{without bootstrap}
 %bcond test      1
 
+%global zig_cache_dir %{builddir}/zig-cache
+
+%global zig_build_options %{shrink: \
+    --verbose \
+    --release=safe \
+    --summary all \
+    \
+    -Dtarget=native \
+    -Dcpu=baseline \
+    \
+    --cache-dir "%{zig_cache_dir}" \
+    --global-cache-dir "%{zig_cache_dir}" \
+    \
+    -Dversion-string="%{version}" \
+    -Dstatic-llvm=false \
+    -Denable-llvm=true \
+    -Dno-langref=true \
+    -Dstd-docs=false \
+    -Dbuild-id="sha1" \
+    -Dconfig_h="%{__cmake_builddir}/config.h" \
+}
+%global zig_install_options %zig_build_options %{shrink: \
+    --prefix "%{_prefix}" \
+}
+
 Name:           zig
 Version:        0.13.0
 Release:        6%{?dist}
@@ -123,6 +148,10 @@ rm -f stage1/zig1.wasm
 %endif
 
 %build
+
+# zig doesn't know how to dynamically link llvm on its own so we need cmake to generate a header ahead of time
+# if we provice the header we need to also build zigcpp
+
 # C_FLAGS: wasm2c output generates a lot of noise with -Wunused.
 # EXTRA_BUILD_ARGS: apply --build-id=sha1 even if running unpatched stage2 compiler.
 %cmake \
@@ -137,24 +166,34 @@ rm -f stage1/zig1.wasm
     -DZIG_TARGET_MCPU:STRING=baseline \
     -DZIG_TARGET_TRIPLE:STRING=native \
     \
-    -DZIG_VERSION:STRING="%{version}" \
-    %{!?with_bootstrap:-DZIG_EXECUTABLE:STRING="/usr/bin/zig"}
-# Build only stage3 and dependencies. Skips stage1/2 if using /usr/bin/zig
+    -DZIG_VERSION:STRING="%{version}"
+
+%if %{with bootstrap}
 %cmake_build --target stage3
+%else
+%cmake_build --target zigcpp
+zig build %{zig_build_options}
 
 # Zig has no official manpage
 # https://github.com/ziglang/zig/issues/715
-help2man --no-discard-stderr --no-info "%{__cmake_builddir}/stage3/bin/zig" --version-option=version --output=%{name}.1
+help2man --no-discard-stderr --no-info "./zig-out/bin/zig" --version-option=version --output=%{name}.1
+%endif
+
 
 %if %{with docs}
-"%{__cmake_builddir}/stage3/bin/zig" build docs \
+# Use the newly made stage 3 compiler to generate docs 
+./zig-out/bin/zig build docs \
     --verbose \
-    --global-cache-dir zig-cache \
+    --global-cache-dir "%{zig_cache_dir}" \
     -Dversion-string="%{version}"
 %endif
 
 %install
+%if %{with bootstrap}
 %cmake_install
+%else
+DESTDIR="%{buildroot}" zig build install %{zig_install_options}
+%endif
 
 install -D -pv -m 0644 -t %{buildroot}%{_mandir}/man1/ %{name}.1
 
@@ -165,13 +204,15 @@ install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
 %if %{with test}
 %check
 # Run reduced set of tests, based on the Zig CI
-"%{__cmake_builddir}/stage3/bin/zig" test test/behavior.zig -Itest
+"%{buildroot}%{_bindir}/zig" test test/behavior.zig -Itest
 %endif
 
 %files
 %license LICENSE
 %{_bindir}/zig
+%if %{without bootstrap}
 %{_mandir}/man1/%{name}.1.*
+%endif
 
 %files libs
 %{_prefix}/lib/%{name}
