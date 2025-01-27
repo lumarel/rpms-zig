@@ -19,7 +19,7 @@
 
 %global zig_build_options %{shrink: \
     --verbose \
-    --release=safe \
+    --release=fast \
     --summary all \
     \
     -Dtarget=native \
