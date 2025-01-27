@@ -33,8 +33,9 @@
     -Denable-llvm=true \
     -Dno-langref=true \
     -Dstd-docs=false \
-    -Dbuild-id="sha1" \
+    -Dpie \
     -Dconfig_h="%{__cmake_builddir}/config.h" \
+    -Dbuild-id="sha1" \
 }
 %global zig_install_options %zig_build_options %{shrink: \
     --prefix "%{_prefix}" \
