@@ -32,7 +32,8 @@
 
 %_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?_zig_system_integration} %{?_zig_advanced_options} %{?zig_build_options}
 %_zig_install_options --prefix "%{_prefix}" --prefix-lib-dir "%{_libdir}" --prefix-exe-dir "%{_bindir}" --prefix-include-dir "%{_includedir}" %{?zig_install_options}
-%_zig_fetch_options --global-cache-dir %{_zig_cache_dir}
+%_zig_fetch_options --global-cache-dir %{_zig_cache_dir} %{zig_fetch_options}
+%_zig_test_options %{?zig_test_options}
 
 
 %zig_prep %{shrink: \
@@ -62,5 +63,6 @@
 
 %zig_test %{shrink: \
     %zig_build \
-        test
+        test \
+        %{?%_zig_test_options} \
 }
