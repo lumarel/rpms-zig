@@ -195,9 +195,9 @@ help2man --no-discard-stderr --no-info "./zig-out/bin/zig" --version-option=vers
 %cmake_install
 %else
 DESTDIR="%{buildroot}" zig build install %{zig_install_options}
-%endif
 
 install -D -pv -m 0644 -t %{buildroot}%{_mandir}/man1/ %{name}.1
+%endif
 
 %if %{with macro}
 install -D -pv -m 0644 %{SOURCE2} %{buildroot}%{_rpmmacrodir}/macros.%{name}
