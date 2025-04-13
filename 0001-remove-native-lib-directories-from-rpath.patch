@@ -9,13 +9,13 @@ Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
  1 file changed, 9 insertions(+)
 
 diff --git a/src/main.zig b/src/main.zig
-index 21f7281d74..854dfb48cc 100644
+index 1075993846..dd9ab8febd 100644
 --- a/src/main.zig
 +++ b/src/main.zig
-@@ -3740,6 +3740,15 @@ fn createModule(
-             try create_module.framework_dirs.appendSlice(arena, paths.framework_dirs.items);
-             try create_module.lib_dirs.appendSlice(arena, paths.lib_dirs.items);
-             try create_module.rpath_list.appendSlice(arena, paths.rpaths.items);
+@@ -4033,6 +4033,15 @@ fn createModule(
+ 
+             try create_module.lib_directories.ensureUnusedCapacity(arena, paths.lib_dirs.items.len);
+             for (paths.lib_dirs.items) |path| addLibDirectoryWarn2(&create_module.lib_directories, path, true);
 +
 +            for (paths.lib_dirs.items) |native_lib_dir| {
 +                for (0.., create_module.rpath_list.items) |i, rpath_dir| {
