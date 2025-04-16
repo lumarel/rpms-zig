@@ -198,7 +198,7 @@ help2man --no-discard-stderr --no-info "./zig-out/bin/zig" --version-option=vers
 %else
 DESTDIR="%{buildroot}" zig build install %{zig_install_options}
 
-install -D -pv -m 0644 -t %{buildroot}%{_mandir}/man1/ %{name}.1
+install -D -pv -m 0644 -t %{buildroot}%{_mandir}/man1/ zig.1
 %endif
 
 %if %{with macro}
