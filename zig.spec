@@ -67,7 +67,7 @@ Patch:          0002-std.Build-add-build-id-option.patch
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  cmake
-BuildRequires:  llvm%{?llvm_compat}-devel = 18.1.8-3.full.el9
+BuildRequires:  llvm%{?llvm_compat}-devel = 19.1.7-2.full.el9
 BuildRequires:  clang%{?llvm_compat}-devel
 BuildRequires:  lld%{?llvm_compat}-devel
 BuildRequires:  zlib-devel
