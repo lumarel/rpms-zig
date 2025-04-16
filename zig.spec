@@ -77,7 +77,7 @@ Patch:          0004-build-pass-zig-lib-dir-as-directory-instead-of-as-st.patch
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  cmake
-BuildRequires:  llvm%{?llvm_compat}-devel
+BuildRequires:  llvm%{?llvm_compat}-devel = 19.1.7-2.full.el9
 BuildRequires:  clang%{?llvm_compat}-devel
 BuildRequires:  lld%{?llvm_compat}-devel
 BuildRequires:  zlib-devel
