@@ -62,7 +62,12 @@ Patch:          0001-remove-native-lib-directories-from-rpath.patch
 # any trouble because of packaging demands
 # https://github.com/ziglang/zig/pull/22516
 Patch:          0002-std.Build-add-build-id-option.patch
-
+# Zig has a feature that allows the developer to specify max memory usage
+# during compilation, this allows the compiler to split up tasks efficiently-
+# Annoyingly if any singular step goes above this it will fail after completion
+# Upstream suggested simply bumping this limit to 9GB
+# https://github.com/ziglang/zig/pull/23638
+Patch:          0003-increase-upper-bounds-of-main-zig-executable-to-9G.patc
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
