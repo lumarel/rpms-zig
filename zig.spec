@@ -67,7 +67,7 @@ Patch:          0002-std.Build-add-build-id-option.patch
 # Annoyingly if any singular step goes above this it will fail after completion
 # Upstream suggested simply bumping this limit to 9GB
 # https://github.com/ziglang/zig/pull/23638
-Patch:          0003-increase-upper-bounds-of-main-zig-executable-to-9G.patc
+Patch:          0003-increase-upper-bounds-of-main-zig-executable-to-9G.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
