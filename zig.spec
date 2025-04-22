@@ -11,7 +11,7 @@
 %global         llvm_version 19.0.0
 
 %bcond bootstrap 0
-%bcond docs      %{without bootstrap}
+%bcond docs      0
 %bcond macro     %{without bootstrap}
 %bcond test      1
 
