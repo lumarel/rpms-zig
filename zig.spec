@@ -191,10 +191,7 @@ help2man --no-discard-stderr --no-info "./zig-out/bin/zig" --version-option=vers
 
 %if %{with docs}
 # Use the newly made stage 3 compiler to generate docs 
-./zig-out/bin/zig build docs \
-    --verbose \
-    --global-cache-dir "%{zig_cache_dir}" \
-    -Dversion-string="%{version}"
+./zig-out/bin/zig build docs %{zig_build_options}
 %endif
 
 %install
