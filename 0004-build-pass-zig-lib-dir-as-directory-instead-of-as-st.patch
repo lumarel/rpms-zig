@@ -1,0 +1,33 @@
+From 2f379308820b58049cfe0aaca1eb4f77700d0047 Mon Sep 17 00:00:00 2001
+From: Jan200101 <sentrycraft123@gmail.com>
+Date: Thu, 24 Apr 2025 17:35:29 +0200
+Subject: [PATCH 4/4] build: pass zig lib dir as directory instead of as string
+
+Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
+---
+ build.zig | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/build.zig b/build.zig
+index bc08eed298..7099edfb86 100644
+--- a/build.zig
++++ b/build.zig
+@@ -1360,7 +1360,14 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
+             // in a temporary directory
+             "--cache-root", b.cache_root.path orelse ".",
+         });
+-        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
++        if (b.graph.zig_lib_directory.path) |zig_lib_dir| {
++            cmd.addArgs(&.{"--zig-lib-dir"});
++            if (fs.path.isAbsolute(zig_lib_dir)) {
++                cmd.addArgs(&.{zig_lib_dir});
++            } else {
++                cmd.addDirectoryArg(b.path(zig_lib_dir));
++            }
++        }
+         cmd.addArgs(&.{"-i"});
+         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
+ 
+-- 
+2.49.0
+
