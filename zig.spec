@@ -15,7 +15,7 @@
 %bcond macro     %{without bootstrap}
 %bcond test      1
 
-%global zig_cache_dir %{builddir}/zig-cache
+%global zig_cache_dir %{_builddir}/zig-cache
 
 %global zig_build_options %{shrink: \
     --verbose \
