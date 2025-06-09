@@ -1,7 +1,7 @@
-From fd127fafb534eade533655688c4977ae4f7cebe0 Mon Sep 17 00:00:00 2001
+From 80955809c64d3e83a475f26ca9d17ea2e2fb6da7 Mon Sep 17 00:00:00 2001
 From: Jan200101 <sentrycraft123@gmail.com>
 Date: Fri, 17 Jan 2025 20:53:30 +0100
-Subject: [PATCH 2/5] std.Build: add build-id option
+Subject: [PATCH 2/4] std.Build: add build-id option
 
 Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
 ---
@@ -12,7 +12,7 @@ Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
  4 files changed, 16 insertions(+), 7 deletions(-)
 
 diff --git a/build.zig b/build.zig
-index 2d196041b3..c7dec601b4 100644
+index 8967906d7b..7aedcdaa93 100644
 --- a/build.zig
 +++ b/build.zig
 @@ -197,12 +197,6 @@ pub fn build(b: *std.Build) !void {
@@ -29,7 +29,7 @@ index 2d196041b3..c7dec601b4 100644
          b.getInstallStep().dependOn(&exe.step);
      } else {
 diff --git a/lib/compiler/build_runner.zig b/lib/compiler/build_runner.zig
-index 8702acb329..81393610be 100644
+index b649c0103b..6b6b14f0e9 100644
 --- a/lib/compiler/build_runner.zig
 +++ b/lib/compiler/build_runner.zig
 @@ -202,6 +202,15 @@ pub fn main() !void {
@@ -48,7 +48,7 @@ index 8702acb329..81393610be 100644
              } else if (mem.eql(u8, arg, "--debounce")) {
                  const next_arg = nextArg(args, &arg_idx) orelse
                      fatalWithHint("expected u16 after '{s}'", .{arg});
-@@ -1364,6 +1373,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
+@@ -1360,6 +1369,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
          \\  --zig-lib-dir [arg]          Override path to Zig lib directory
          \\  --build-runner [file]        Override path to build runner
          \\  --seed [integer]             For shuffling dependency traversal order (default: random)
@@ -73,10 +73,10 @@ index 4afdcd2bff..d31d9f3ee0 100644
      off,
      any,
 diff --git a/lib/std/Build/Step/Compile.zig b/lib/std/Build/Step/Compile.zig
-index 616e8f76b4..f70410f612 100644
+index c401a840ba..ae2faf24ba 100644
 --- a/lib/std/Build/Step/Compile.zig
 +++ b/lib/std/Build/Step/Compile.zig
-@@ -1681,7 +1681,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
+@@ -1685,7 +1685,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
  
      try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
  

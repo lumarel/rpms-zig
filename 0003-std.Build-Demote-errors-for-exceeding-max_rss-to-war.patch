@@ -1,0 +1,46 @@
+From e8398fa0049f4152c5de157f495bd2955a246113 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Mon, 2 Jun 2025 20:55:01 +0200
+Subject: [PATCH 3/4] std.Build: Demote errors for exceeding max_rss to
+ warnings.
+
+We have no control over memory usage on arbitrary systems in the wild. But we
+would still like to get the warnings so we can adjust the values based on
+observations in the official ZSF CI.
+
+Closes #23254.
+Closes #23638.
+
+Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
+---
+ lib/compiler/build_runner.zig | 1 -
+ lib/std/Build/Step.zig        | 1 -
+ 2 files changed, 2 deletions(-)
+
+diff --git a/lib/compiler/build_runner.zig b/lib/compiler/build_runner.zig
+index 6b6b14f0e9..8eb5c87cd3 100644
+--- a/lib/compiler/build_runner.zig
++++ b/lib/compiler/build_runner.zig
+@@ -596,7 +596,6 @@ fn prepare(
+             if (run.max_rss_is_default) {
+                 std.debug.print("note: use --maxrss to override the default", .{});
+             }
+-            return uncleanExit();
+         }
+     }
+ }
+diff --git a/lib/std/Build/Step.zig b/lib/std/Build/Step.zig
+index 125b3e7947..9cf0ca475e 100644
+--- a/lib/std/Build/Step.zig
++++ b/lib/std/Build/Step.zig
+@@ -247,7 +247,6 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
+             s.result_peak_rss, s.max_rss,
+         }) catch @panic("OOM");
+         s.result_error_msgs.append(arena, msg) catch @panic("OOM");
+-        return error.MakeFailed;
+     }
+ }
+ 
+-- 
+2.49.0
+

@@ -1,7 +1,7 @@
-From 48aa23307d1a47b444854fc09478da6d4ee8e624 Mon Sep 17 00:00:00 2001
+From 10b03d510d753746435f0feb7a1ed6d6f8e2213a Mon Sep 17 00:00:00 2001
 From: Jan200101 <sentrycraft123@gmail.com>
 Date: Sun, 11 May 2025 01:09:41 +0200
-Subject: [PATCH 5/5] link.Elf: add root directory of libraries to linker path
+Subject: [PATCH 4/4] link.Elf: add root directory of libraries to linker path
 
 all the given dynamic shared objects will be linked with an absolute path however they may link to other dynamic shared objects which won't have an absolute path, for this we need to add the library path so that lld can resolve it
 
@@ -11,10 +11,10 @@ Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
  1 file changed, 11 insertions(+), 1 deletion(-)
 
 diff --git a/src/link/Elf.zig b/src/link/Elf.zig
-index 53f88101b1..fe2b7abd48 100644
+index 591786cfbc..98ed6fd919 100644
 --- a/src/link/Elf.zig
 +++ b/src/link/Elf.zig
-@@ -1938,9 +1938,19 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
+@@ -1932,9 +1932,19 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
          // Positional arguments to the linker such as object files.
          var whole_archive = false;
  
