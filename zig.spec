@@ -74,6 +74,7 @@ Patch:          0003-std.Build-Demote-errors-for-exceeding-max_rss-to-war.patch
 # out more system paths.
 # https://github.com/ziglang/zig/pull/23850
 Patch:          0004-link.Elf-add-root-directory-of-libraries-to-linker-p.patch
+Patch:          0005-build-Update-to-LLVM-Clang-20.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
