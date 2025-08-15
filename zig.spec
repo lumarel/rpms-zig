@@ -74,7 +74,26 @@ Patch:          0003-std.Build-Demote-errors-for-exceeding-max_rss-to-war.patch
 # out more system paths.
 # https://github.com/ziglang/zig/pull/23850
 Patch:          0004-link.Elf-add-root-directory-of-libraries-to-linker-p.patch
-Patch:          0005-build-Update-to-LLVM-Clang-20.patch
+
+Patch:          0005-zig-cc-Avoid-passing-any-CPU-features-related-to-flo.patch
+Patch:          0006-llvm-Use-muslabin32-muslabi64-environments-in-the-ta.patch
+Patch:          0007-llvm-never_tail-implies-never_inline-so-set-noinline.patch
+Patch:          0008-Sema-Prevent-tail-calls-of-std.builtin.returnError.patch
+Patch:          0009-compiler-rt-Fix-names-of-some-float-int-conversion-r.patch
+Patch:          0010-llvm-Update-the-list-of-targets-that-use-native-f16-.patch
+Patch:          0011-compiler-Update-max-int-alignments-for-some-targets.patch
+Patch:          0012-llvm-Set-target-abi-module-flag.patch
+Patch:          0013-libtsan-Update-to-LLVM-20.patch
+Patch:          0014-zig-cc-Update-options-data-to-Clang-20.patch
+Patch:          0015-std.Target-Add-Abi.muslf32-and-Abi.muslsf.patch
+Patch:          0016-std.Target-Bump-baseline-hexagon-model-to-hexagonv68.patch
+Patch:          0017-std.Target-Bump-baseline-bpfel-bpfeb-model-to-v3.patch
+Patch:          0018-std.Target-Update-CPU-models-features-for-LLVM-20.patch
+Patch:          0019-compiler-Updates-for-LLVM-Clang-20-API-changes.patch
+Patch:          0020-libunwind-Update-to-LLVM-20.patch
+Patch:          0021-zig-cc-Update-intrinsic-headers-to-Clang-20.patch
+Patch:          0022-zig-cc-Update-driver-files-to-Clang-20.patch
+Patch:          0023-build-Update-to-LLVM-Clang-20.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++

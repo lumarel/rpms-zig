@@ -1,0 +1,29 @@
+From fb543a43b14894159ac0eff7129d736e36fe9942 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Mon, 10 Mar 2025 07:40:10 +0100
+Subject: [PATCH] llvm: Use muslabin32/muslabi64 environments in the target
+ triple.
+
+Closes #2909.
+---
+ src/codegen/llvm.zig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/llvm.zig b/src/codegen/llvm.zig
+index 91c955b4bd..3cf819a952 100644
+--- a/src/codegen/llvm.zig
++++ b/src/codegen/llvm.zig
+@@ -271,8 +271,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
+             .wasi, .emscripten => "unknown",
+             else => "musl",
+         },
+-        .muslabin32 => "musl", // Should be muslabin32 in LLVM 20.
+-        .muslabi64 => "musl", // Should be muslabi64 in LLVM 20.
++        .muslabin32 => "muslabin32",
++        .muslabi64 => "muslabi64",
+         .musleabi => "musleabi",
+         .musleabihf => "musleabihf",
+         .muslx32 => "muslx32",
+-- 
+2.47.3
+

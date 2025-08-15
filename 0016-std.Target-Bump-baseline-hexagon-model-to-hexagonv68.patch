@@ -1,0 +1,26 @@
+From c87a0250b8c7bb6b289302171d23968c40969598 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Mon, 10 Mar 2025 07:04:26 +0100
+Subject: [PATCH] std.Target: Bump baseline hexagon model to hexagonv68.
+
+https://github.com/llvm/llvm-project/pull/125584
+---
+ lib/std/Target.zig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/std/Target.zig b/lib/std/Target.zig
+index b18198e8db..ca9e86fc4c 100644
+--- a/lib/std/Target.zig
++++ b/lib/std/Target.zig
+@@ -1925,7 +1925,7 @@ pub const Cpu = struct {
+                 .avr => &avr.cpu.avr2,
+                 .bpfel, .bpfeb => &bpf.cpu.v1,
+                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
+-                .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
++                .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
+                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
+                 .loongarch64 => &loongarch.cpu.loongarch64,
+                 .m68k => &m68k.cpu.M68000,
+-- 
+2.47.3
+

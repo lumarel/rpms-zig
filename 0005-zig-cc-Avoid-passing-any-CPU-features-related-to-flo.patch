@@ -1,0 +1,30 @@
+From 4d4e469c4051948beaea71b4a8995b03d171e6a2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Mon, 10 Mar 2025 09:14:18 +0100
+Subject: [PATCH] zig cc: Avoid passing any "CPU" features related to float ABI
+ to Clang.
+
+---
+ src/Compilation.zig | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/Compilation.zig b/src/Compilation.zig
+index 74ddc30a5a..50a6372614 100644
+--- a/src/Compilation.zig
++++ b/src/Compilation.zig
+@@ -6006,8 +6006,10 @@ pub fn addCCArgs(
+                 const is_enabled = target.cpu.features.isEnabled(index);
+ 
+                 if (feature.llvm_name) |llvm_name| {
+-                    // We communicate float ABI to Clang through the dedicated options further down.
+-                    if (std.mem.eql(u8, llvm_name, "soft-float")) continue;
++                    // We communicate float ABI to Clang through the dedicated options.
++                    if (std.mem.startsWith(u8, llvm_name, "soft-float") or
++                        std.mem.startsWith(u8, llvm_name, "hard-float"))
++                        continue;
+ 
+                     // Ignore these until we figure out how to handle the concept of omitting features.
+                     // See https://github.com/ziglang/zig/issues/23539
+-- 
+2.47.3
+

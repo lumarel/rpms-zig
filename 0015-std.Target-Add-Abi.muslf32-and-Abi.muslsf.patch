@@ -1,0 +1,143 @@
+From 89bce8f1ad5d50d569d59723e77b8f93b9fe19a7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Mon, 10 Mar 2025 08:28:56 +0100
+Subject: [PATCH] std.Target: Add Abi.muslf32 and Abi.muslsf.
+
+---
+ lib/compiler/aro/aro/target.zig |  2 ++
+ lib/std/Target.zig              | 17 ++++++++++++++++-
+ lib/std/zig/LibCDirs.zig        |  2 ++
+ lib/std/zig/target.zig          |  1 +
+ src/codegen/llvm.zig            |  2 ++
+ src/target.zig                  |  5 ++---
+ test/llvm_targets.zig           |  2 ++
+ 7 files changed, 27 insertions(+), 4 deletions(-)
+
+diff --git a/lib/compiler/aro/aro/target.zig b/lib/compiler/aro/aro/target.zig
+index 7495eb5d9a..87fed1a5fe 100644
+--- a/lib/compiler/aro/aro/target.zig
++++ b/lib/compiler/aro/aro/target.zig
+@@ -698,6 +698,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
+         .muslabi64 => "muslabi64",
+         .musleabi => "musleabi",
+         .musleabihf => "musleabihf",
++        .muslf32 => "muslf32",
++        .muslsf => "muslsf",
+         .muslx32 => "muslx32",
+         .msvc => "msvc",
+         .itanium => "itanium",
+diff --git a/lib/std/Target.zig b/lib/std/Target.zig
+index 8e78e4dc29..b18198e8db 100644
+--- a/lib/std/Target.zig
++++ b/lib/std/Target.zig
+@@ -775,6 +775,8 @@ pub const Abi = enum {
+     muslabi64,
+     musleabi,
+     musleabihf,
++    muslf32,
++    muslsf,
+     muslx32,
+     msvc,
+     itanium,
+@@ -949,6 +951,8 @@ pub const Abi = enum {
+             .muslabi64,
+             .musleabi,
+             .musleabihf,
++            .muslf32,
++            .muslsf,
+             .muslx32,
+             => true,
+             else => abi.isOpenHarmony(),
+@@ -2251,9 +2255,20 @@ pub const DynamicLinker = struct {
+                         },
+                     }),
+ 
++                    .loongarch32,
++                    .loongarch64,
++                    => |arch| initFmt("/lib/ld-musl-{s}{s}.so.1", .{
++                        @tagName(arch),
++                        switch (abi) {
++                            .musl => "",
++                            .muslf32 => "-sp",
++                            .muslsf => "-sf",
++                            else => return none,
++                        },
++                    }),
++
+                     .aarch64,
+                     .aarch64_be,
+-                    .loongarch64, // TODO: `-sp` and `-sf` ABI support in LLVM 20.
+                     .m68k,
+                     .powerpc64,
+                     .powerpc64le,
+diff --git a/lib/std/zig/LibCDirs.zig b/lib/std/zig/LibCDirs.zig
+index cda21fbb37..7efc1d7341 100644
+--- a/lib/std/zig/LibCDirs.zig
++++ b/lib/std/zig/LibCDirs.zig
+@@ -236,6 +236,8 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
+         .muslabi64,
+         .musleabi,
+         .musleabihf,
++        .muslf32,
++        .muslsf,
+         .muslx32,
+         .none,
+         .ohos,
+diff --git a/lib/std/zig/target.zig b/lib/std/zig/target.zig
+index f4c6ae6885..37648d034d 100644
+--- a/lib/std/zig/target.zig
++++ b/lib/std/zig/target.zig
+@@ -37,6 +37,7 @@ pub const available_libcs = [_]ArchOsAbi{
+     .{ .arch = .loongarch64, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnu-lp64d" },
+     .{ .arch = .loongarch64, .os = .linux, .abi = .gnusf, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 36, .patch = 0 }, .glibc_triple = "loongarch64-linux-gnu-lp64s" },
+     .{ .arch = .loongarch64, .os = .linux, .abi = .musl, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 } },
++    .{ .arch = .loongarch64, .os = .linux, .abi = .muslsf, .os_ver = .{ .major = 5, .minor = 19, .patch = 0 } },
+     .{ .arch = .m68k, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 1, .minor = 3, .patch = 94 } },
+     .{ .arch = .m68k, .os = .linux, .abi = .musl, .os_ver = .{ .major = 1, .minor = 3, .patch = 94 } },
+     .{ .arch = .mips, .os = .linux, .abi = .gnueabi, .os_ver = .{ .major = 1, .minor = 1, .patch = 82 }, .glibc_triple = "mips-linux-gnu-soft" },
+diff --git a/src/codegen/llvm.zig b/src/codegen/llvm.zig
+index 2c48f91354..b165f1fc81 100644
+--- a/src/codegen/llvm.zig
++++ b/src/codegen/llvm.zig
+@@ -275,6 +275,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
+         .muslabi64 => "muslabi64",
+         .musleabi => "musleabi",
+         .musleabihf => "musleabihf",
++        .muslf32 => "muslf32",
++        .muslsf => "muslsf",
+         .muslx32 => "muslx32",
+         .msvc => "msvc",
+         .itanium => "itanium",
+diff --git a/src/target.zig b/src/target.zig
+index 611fbf2301..87035fa374 100644
+--- a/src/target.zig
++++ b/src/target.zig
+@@ -532,10 +532,9 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
+ 
+     return switch (target.cpu.arch) {
+         .arm, .armeb, .thumb, .thumbeb => "aapcs",
+-        // TODO: `muslsf` and `muslf32` in LLVM 20.
+         .loongarch64 => switch (target.abi) {
+-            .gnusf => "lp64s",
+-            .gnuf32 => "lp64f",
++            .gnusf, .muslsf => "lp64s",
++            .gnuf32, .muslf32 => "lp64f",
+             else => "lp64d",
+         },
+         .loongarch32 => switch (target.abi) {
+diff --git a/test/llvm_targets.zig b/test/llvm_targets.zig
+index eed8178fe4..2271d1471b 100644
+--- a/test/llvm_targets.zig
++++ b/test/llvm_targets.zig
+@@ -114,6 +114,8 @@ const targets = [_]std.Target.Query{
+     // .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .gnuf32 },
+     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .gnusf },
+     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .musl },
++    // .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .muslf32 },
++    .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .muslsf },
+     .{ .cpu_arch = .loongarch64, .os_tag = .linux, .abi = .none },
+     // .{ .cpu_arch = .loongarch64, .os_tag = .uefi, .abi = .none },
+ 
+-- 
+2.47.3
+

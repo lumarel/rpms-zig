@@ -1,0 +1,28 @@
+From b5aff79067d5133ef7cac35362f5b1dfce4ea2c8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Thu, 6 Mar 2025 18:41:45 +0100
+Subject: [PATCH] llvm: never_tail implies never_inline, so set noinline in
+ this case too.
+
+---
+ src/codegen/llvm.zig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/codegen/llvm.zig b/src/codegen/llvm.zig
+index 3cf819a952..ad57b6ffad 100644
+--- a/src/codegen/llvm.zig
++++ b/src/codegen/llvm.zig
+@@ -5499,8 +5499,8 @@ pub const FuncGen = struct {
+         }
+ 
+         switch (modifier) {
+-            .auto, .never_tail, .always_tail => {},
+-            .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
++            .auto, .always_tail => {},
++            .never_tail, .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
+             .async_kw, .no_async, .always_inline, .compile_time => unreachable,
+         }
+ 
+-- 
+2.47.3
+

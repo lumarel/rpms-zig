@@ -1,0 +1,59 @@
+From fdb603596aee45333c54628dd00ab7dfd667a87a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Thu, 6 Mar 2025 18:40:21 +0100
+Subject: [PATCH] Sema: Prevent tail calls of std.builtin.returnError().
+
+LLVM 20 started tail-calling it in some of our test cases, resulting in:
+
+    error: AndMyCarIsOutOfGas
+    /home/alexrp/Source/ziglang/zig-llvm20/repro.zig:2:5: 0x103ef9d in main (repro)
+        return error.TheSkyIsFalling;
+        ^
+    /home/alexrp/Source/ziglang/zig-llvm20/repro.zig:6:5: 0x103efa5 in main (repro)
+        return error.AndMyCarIsOutOfGas;
+        ^
+    /home/alexrp/Source/ziglang/zig-llvm20/lib/std/start.zig:656:37: 0x103ee83 in posixCallMainAndExit (repro)
+                const result = root.main() catch |err| {
+                                        ^
+
+instead of the expected:
+
+    error: AndMyCarIsOutOfGas
+    /home/alexrp/Source/ziglang/zig-llvm20/repro.zig:2:5: 0x103f00d in main (repro)
+        return error.TheSkyIsFalling;
+        ^
+    /home/alexrp/Source/ziglang/zig-llvm20/repro.zig:6:5: 0x103f015 in main (repro)
+        return error.AndMyCarIsOutOfGas;
+        ^
+    /home/alexrp/Source/ziglang/zig-llvm20/repro.zig:11:9: 0x103f01d in main (repro)
+            try bar();
+            ^
+---
+ src/Sema.zig | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/Sema.zig b/src/Sema.zig
+index d4284aa441..4c44d6cafb 100644
+--- a/src/Sema.zig
++++ b/src/Sema.zig
+@@ -19884,7 +19884,7 @@ fn retWithErrTracing(
+     const return_err_fn = Air.internedToRef(try sema.getBuiltin(src, .returnError));
+ 
+     if (!need_check) {
+-        try sema.callBuiltin(block, src, return_err_fn, .never_inline, &.{}, .@"error return");
++        try sema.callBuiltin(block, src, return_err_fn, .never_tail, &.{}, .@"error return");
+         _ = try block.addUnOp(ret_tag, operand);
+         return;
+     }
+@@ -19895,7 +19895,7 @@ fn retWithErrTracing(
+ 
+     var else_block = block.makeSubBlock();
+     defer else_block.instructions.deinit(gpa);
+-    try sema.callBuiltin(&else_block, src, return_err_fn, .never_inline, &.{}, .@"error return");
++    try sema.callBuiltin(&else_block, src, return_err_fn, .never_tail, &.{}, .@"error return");
+     _ = try else_block.addUnOp(ret_tag, operand);
+ 
+     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
+-- 
+2.47.3
+

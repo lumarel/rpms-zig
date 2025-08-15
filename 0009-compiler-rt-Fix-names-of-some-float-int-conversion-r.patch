@@ -1,0 +1,114 @@
+From fe4bcd18d6f729a6c4f56ff92d2045fe168a2880 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Wed, 5 Mar 2025 09:09:30 +0100
+Subject: [PATCH] compiler-rt: Fix names of some float/int conversion routines
+ for hexagon.
+
+---
+ lib/compiler_rt/fixdfti.zig    | 5 +----
+ lib/compiler_rt/fixsfti.zig    | 5 +----
+ lib/compiler_rt/fixunsdfti.zig | 5 +----
+ lib/compiler_rt/fixunssfti.zig | 5 +----
+ lib/compiler_rt/floattidf.zig  | 5 +----
+ lib/compiler_rt/floattisf.zig  | 5 +----
+ 6 files changed, 6 insertions(+), 24 deletions(-)
+
+diff --git a/lib/compiler_rt/fixdfti.zig b/lib/compiler_rt/fixdfti.zig
+index d46245d839..196750d4a8 100644
+--- a/lib/compiler_rt/fixdfti.zig
++++ b/lib/compiler_rt/fixdfti.zig
+@@ -8,10 +8,7 @@ comptime {
+     if (common.want_windows_v2u64_abi) {
+         @export(&__fixdfti_windows_x86_64, .{ .name = "__fixdfti", .linkage = common.linkage, .visibility = common.visibility });
+     } else {
+-        @export(&__fixdfti, .{ .name = switch (builtin.cpu.arch) {
+-            .hexagon => "__hexagon",
+-            else => "_",
+-        } ++ "_fixdfti", .linkage = common.linkage, .visibility = common.visibility });
++        @export(&__fixdfti, .{ .name = "__fixdfti", .linkage = common.linkage, .visibility = common.visibility });
+     }
+ }
+ 
+diff --git a/lib/compiler_rt/fixsfti.zig b/lib/compiler_rt/fixsfti.zig
+index a0a3e3f3e5..439310d0b6 100644
+--- a/lib/compiler_rt/fixsfti.zig
++++ b/lib/compiler_rt/fixsfti.zig
+@@ -8,10 +8,7 @@ comptime {
+     if (common.want_windows_v2u64_abi) {
+         @export(&__fixsfti_windows_x86_64, .{ .name = "__fixsfti", .linkage = common.linkage, .visibility = common.visibility });
+     } else {
+-        @export(&__fixsfti, .{ .name = switch (builtin.cpu.arch) {
+-            .hexagon => "__hexagon",
+-            else => "_",
+-        } ++ "_fixsfti", .linkage = common.linkage, .visibility = common.visibility });
++        @export(&__fixsfti, .{ .name = "__fixsfti", .linkage = common.linkage, .visibility = common.visibility });
+     }
+ }
+ 
+diff --git a/lib/compiler_rt/fixunsdfti.zig b/lib/compiler_rt/fixunsdfti.zig
+index 8e9b9ef151..f8164d8185 100644
+--- a/lib/compiler_rt/fixunsdfti.zig
++++ b/lib/compiler_rt/fixunsdfti.zig
+@@ -8,10 +8,7 @@ comptime {
+     if (common.want_windows_v2u64_abi) {
+         @export(&__fixunsdfti_windows_x86_64, .{ .name = "__fixunsdfti", .linkage = common.linkage, .visibility = common.visibility });
+     } else {
+-        @export(&__fixunsdfti, .{ .name = switch (builtin.cpu.arch) {
+-            .hexagon => "__hexagon",
+-            else => "_",
+-        } ++ "_fixunsdfti", .linkage = common.linkage, .visibility = common.visibility });
++        @export(&__fixunsdfti, .{ .name = "__fixunsdfti", .linkage = common.linkage, .visibility = common.visibility });
+     }
+ }
+ 
+diff --git a/lib/compiler_rt/fixunssfti.zig b/lib/compiler_rt/fixunssfti.zig
+index 6aa3f17edb..05919e996e 100644
+--- a/lib/compiler_rt/fixunssfti.zig
++++ b/lib/compiler_rt/fixunssfti.zig
+@@ -8,10 +8,7 @@ comptime {
+     if (common.want_windows_v2u64_abi) {
+         @export(&__fixunssfti_windows_x86_64, .{ .name = "__fixunssfti", .linkage = common.linkage, .visibility = common.visibility });
+     } else {
+-        @export(&__fixunssfti, .{ .name = switch (builtin.cpu.arch) {
+-            .hexagon => "__hexagon",
+-            else => "_",
+-        } ++ "_fixunssfti", .linkage = common.linkage, .visibility = common.visibility });
++        @export(&__fixunssfti, .{ .name = "__fixunssfti", .linkage = common.linkage, .visibility = common.visibility });
+     }
+ }
+ 
+diff --git a/lib/compiler_rt/floattidf.zig b/lib/compiler_rt/floattidf.zig
+index 9228f0adcd..b13a450aa5 100644
+--- a/lib/compiler_rt/floattidf.zig
++++ b/lib/compiler_rt/floattidf.zig
+@@ -8,10 +8,7 @@ comptime {
+     if (common.want_windows_v2u64_abi) {
+         @export(&__floattidf_windows_x86_64, .{ .name = "__floattidf", .linkage = common.linkage, .visibility = common.visibility });
+     } else {
+-        @export(&__floattidf, .{ .name = switch (builtin.cpu.arch) {
+-            .hexagon => "__hexagon",
+-            else => "_",
+-        } ++ "_floattidf", .linkage = common.linkage, .visibility = common.visibility });
++        @export(&__floattidf, .{ .name = "__floattidf", .linkage = common.linkage, .visibility = common.visibility });
+     }
+ }
+ 
+diff --git a/lib/compiler_rt/floattisf.zig b/lib/compiler_rt/floattisf.zig
+index b2e70788da..c609f87abb 100644
+--- a/lib/compiler_rt/floattisf.zig
++++ b/lib/compiler_rt/floattisf.zig
+@@ -8,10 +8,7 @@ comptime {
+     if (common.want_windows_v2u64_abi) {
+         @export(&__floattisf_windows_x86_64, .{ .name = "__floattisf", .linkage = common.linkage, .visibility = common.visibility });
+     } else {
+-        @export(&__floattisf, .{ .name = switch (builtin.cpu.arch) {
+-            .hexagon => "__hexagon",
+-            else => "_",
+-        } ++ "_floattisf", .linkage = common.linkage, .visibility = common.visibility });
++        @export(&__floattisf, .{ .name = "__floattisf", .linkage = common.linkage, .visibility = common.visibility });
+     }
+ }
+ 
+-- 
+2.47.3
+

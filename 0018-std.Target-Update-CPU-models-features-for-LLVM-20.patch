@@ -1,0 +1,4977 @@
+From 66060089cb27e820cde61cc316c8aebed872735d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Wed, 5 Feb 2025 12:58:32 +0100
+Subject: [PATCH] std.Target: Update CPU models/features for LLVM 20.
+
+Closes #21818.
+---
+ lib/std/Target/aarch64.zig    |  343 ++++++++---
+ lib/std/Target/amdgcn.zig     |  363 ++++++++++--
+ lib/std/Target/arm.zig        |   87 ++-
+ lib/std/Target/avr.zig        |   25 +
+ lib/std/Target/csky.zig       |   14 +-
+ lib/std/Target/hexagon.zig    |   79 +++
+ lib/std/Target/loongarch.zig  |   36 ++
+ lib/std/Target/nvptx.zig      |   96 ++++
+ lib/std/Target/riscv.zig      | 1005 ++++++++++++++++++++++++---------
+ lib/std/Target/s390x.zig      |   82 +++
+ lib/std/Target/sparc.zig      |   36 ++
+ lib/std/Target/wasm.zig       |   43 +-
+ lib/std/Target/x86.zig        |  163 ++++++
+ src/codegen/llvm.zig          |    1 +
+ src/link/Wasm.zig             |   17 +-
+ src/target.zig                |    8 +-
+ tools/update_cpu_features.zig |   36 +-
+ 17 files changed, 2034 insertions(+), 400 deletions(-)
+
+diff --git a/lib/std/Target/aarch64.zig b/lib/std/Target/aarch64.zig
+index 6c52fbbb18..a899531fbf 100644
+--- a/lib/std/Target/aarch64.zig
++++ b/lib/std/Target/aarch64.zig
+@@ -16,7 +16,7 @@ pub const Feature = enum {
+     arith_bcc_fusion,
+     arith_cbz_fusion,
+     ascend_store_address,
+-    b16b16,
++    avoid_ldapur,
+     balance_fp_ops,
+     bf16,
+     brbe,
+@@ -36,6 +36,7 @@ pub const Feature = enum {
+     chk,
+     clrbhb,
+     cmp_bcc_fusion,
++    cmpbr,
+     complxnum,
+     contextidr_el2,
+     cpa,
+@@ -56,6 +57,8 @@ pub const Feature = enum {
+     exynos_cheap_as_move,
+     f32mm,
+     f64mm,
++    f8f16mm,
++    f8f32mm,
+     faminmax,
+     fgt,
+     fix_cortex_a53_835769,
+@@ -69,7 +72,9 @@ pub const Feature = enum {
+     fp8fma,
+     fp_armv8,
+     fpac,
++    fprcvt,
+     fptoint,
++    fujitsu_monaka,
+     fullfp16,
+     fuse_address,
+     fuse_addsub_2reg_const1,
+@@ -94,6 +99,8 @@ pub const Feature = enum {
+     lse,
+     lse128,
+     lse2,
++    lsfe,
++    lsui,
+     lut,
+     mec,
+     mops,
+@@ -106,12 +113,15 @@ pub const Feature = enum {
+     no_sve_fp_ld1r,
+     no_zcz_fp,
+     nv,
++    occmo,
+     outline_atomics,
+     pan,
+     pan_rwv,
+     pauth,
+     pauth_lr,
++    pcdphint,
+     perfmon,
++    pops,
+     predictable_select_expensive,
+     predres,
+     prfm_slc_target,
+@@ -159,6 +169,7 @@ pub const Feature = enum {
+     sme,
+     sme2,
+     sme2p1,
++    sme2p2,
+     sme_b16b16,
+     sme_f16f16,
+     sme_f64f64,
+@@ -167,11 +178,15 @@ pub const Feature = enum {
+     sme_fa64,
+     sme_i16i64,
+     sme_lutv2,
++    sme_mop4,
++    sme_tmop,
+     spe,
+     spe_eef,
+     specres2,
+     specrestrict,
+     ssbs,
++    ssve_aes,
++    ssve_bitperm,
+     ssve_fp8dot2,
+     ssve_fp8dot4,
+     ssve_fp8fma,
+@@ -185,7 +200,13 @@ pub const Feature = enum {
+     sve2_sha3,
+     sve2_sm4,
+     sve2p1,
++    sve2p2,
++    sve_aes,
++    sve_aes2,
+     sve_b16b16,
++    sve_bfscale,
++    sve_bitperm,
++    sve_f16f32mm,
+     tagged_globals,
+     the,
+     tlb_rmi,
+@@ -202,7 +223,6 @@ pub const Feature = enum {
+     use_fixed_over_scalable_if_equal_cost,
+     use_postra_scheduler,
+     use_reciprocal_square_root,
+-    use_scalar_inc_vl,
+     v8_1a,
+     v8_2a,
+     v8_3a,
+@@ -219,6 +239,7 @@ pub const Feature = enum {
+     v9_3a,
+     v9_4a,
+     v9_5a,
++    v9_6a,
+     v9a,
+     vh,
+     wfxt,
+@@ -264,7 +285,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.altnzcv)] = .{
+         .llvm_name = "altnzcv",
+         .description = "Enable alternative NZCV format for floating point comparisons",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .flagm,
++        }),
+     };
+     result[@intFromEnum(Feature.alu_lsl_fast)] = .{
+         .llvm_name = "alu-lsl-fast",
+@@ -298,12 +321,10 @@ pub const all_features = blk: {
+         .description = "Schedule vector stores by ascending address",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.b16b16)] = .{
+-        .llvm_name = "b16b16",
+-        .description = "Enable SVE2.1 or SME2.1 non-widening BFloat16 to BFloat16 instructions",
+-        .dependencies = featureSet(&[_]Feature{
+-            .bf16,
+-        }),
++    result[@intFromEnum(Feature.avoid_ldapur)] = .{
++        .llvm_name = "avoid-ldapur",
++        .description = "Prefer add+ldapr to offset ldapur",
++        .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.balance_fp_ops)] = .{
+         .llvm_name = "balance-fp-ops",
+@@ -313,7 +334,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.bf16)] = .{
+         .llvm_name = "bf16",
+         .description = "Enable BFloat16 Extension",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .neon,
++        }),
+     };
+     result[@intFromEnum(Feature.brbe)] = .{
+         .llvm_name = "brbe",
+@@ -373,7 +396,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.ccdp)] = .{
+         .llvm_name = "ccdp",
+         .description = "Enable Armv8.5-A Cache Clean to Point of Deep Persistence",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .ccpp,
++        }),
+     };
+     result[@intFromEnum(Feature.ccidx)] = .{
+         .llvm_name = "ccidx",
+@@ -400,6 +425,11 @@ pub const all_features = blk: {
+         .description = "CPU fuses cmp+bcc operations",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.cmpbr)] = .{
++        .llvm_name = "cmpbr",
++        .description = "Enable Armv9.6-A base compare and branch instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.complxnum)] = .{
+         .llvm_name = "complxnum",
+         .description = "Enable Armv8.3-A Floating-point complex number support",
+@@ -515,10 +545,26 @@ pub const all_features = blk: {
+             .sve,
+         }),
+     };
++    result[@intFromEnum(Feature.f8f16mm)] = .{
++        .llvm_name = "f8f16mm",
++        .description = "Enable Armv9.6-A FP8 to Half-Precision Matrix Multiplication",
++        .dependencies = featureSet(&[_]Feature{
++            .fp8,
++        }),
++    };
++    result[@intFromEnum(Feature.f8f32mm)] = .{
++        .llvm_name = "f8f32mm",
++        .description = "Enable Armv9.6-A FP8 to Single-Precision Matrix Multiplication",
++        .dependencies = featureSet(&[_]Feature{
++            .fp8,
++        }),
++    };
+     result[@intFromEnum(Feature.faminmax)] = .{
+         .llvm_name = "faminmax",
+         .description = "Enable FAMIN and FAMAX instructions",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .neon,
++        }),
+     };
+     result[@intFromEnum(Feature.fgt)] = .{
+         .llvm_name = "fgt",
+@@ -550,29 +596,28 @@ pub const all_features = blk: {
+         .description = "Enable FP16 FML instructions",
+         .dependencies = featureSet(&[_]Feature{
+             .fullfp16,
++            .neon,
+         }),
+     };
+     result[@intFromEnum(Feature.fp8)] = .{
+         .llvm_name = "fp8",
+         .description = "Enable FP8 instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .bf16,
+-            .faminmax,
+-            .lut,
++            .neon,
+         }),
+     };
+     result[@intFromEnum(Feature.fp8dot2)] = .{
+         .llvm_name = "fp8dot2",
+         .description = "Enable FP8 2-way dot instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .fp8dot4,
++            .fp8,
+         }),
+     };
+     result[@intFromEnum(Feature.fp8dot4)] = .{
+         .llvm_name = "fp8dot4",
+         .description = "Enable FP8 4-way dot instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .fp8fma,
++            .fp8,
+         }),
+     };
+     result[@intFromEnum(Feature.fp8fma)] = .{
+@@ -589,13 +634,32 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.fpac)] = .{
+         .llvm_name = "fpac",
+-        .description = "Enable v8.3-A Pointer Authentication Faulting enhancement",
++        .description = "Enable Armv8.3-A Pointer Authentication Faulting enhancement",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.fprcvt)] = .{
++        .llvm_name = "fprcvt",
++        .description = "Enable Armv9.6-A base convert instructions for SIMD&FP scalar register operands of different input and output sizes",
++        .dependencies = featureSet(&[_]Feature{
++            .fp_armv8,
++        }),
++    };
+     result[@intFromEnum(Feature.fptoint)] = .{
+         .llvm_name = "fptoint",
+         .description = "Enable FRInt[32|64][Z|X] instructions that round a floating-point number to an integer (in FP format) forcing it to fit into a 32- or 64-bit int",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .fp_armv8,
++        }),
++    };
++    result[@intFromEnum(Feature.fujitsu_monaka)] = .{
++        .llvm_name = "fujitsu-monaka",
++        .description = "Fujitsu FUJITSU-MONAKA processors",
++        .dependencies = featureSet(&[_]Feature{
++            .arith_bcc_fusion,
++            .enable_select_opt,
++            .predictable_select_expensive,
++            .use_postra_scheduler,
++        }),
+     };
+     result[@intFromEnum(Feature.fullfp16)] = .{
+         .llvm_name = "fullfp16",
+@@ -679,7 +743,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.i8mm)] = .{
+         .llvm_name = "i8mm",
+         .description = "Enable Matrix Multiply Int8 Extension",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .neon,
++        }),
+     };
+     result[@intFromEnum(Feature.ite)] = .{
+         .llvm_name = "ite",
+@@ -727,10 +793,24 @@ pub const all_features = blk: {
+         .description = "Enable Armv8.4-A Large System Extension 2 (LSE2) atomicity rules",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.lsfe)] = .{
++        .llvm_name = "lsfe",
++        .description = "Enable Armv9.6-A base Atomic floating-point in-memory instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .fp_armv8,
++        }),
++    };
++    result[@intFromEnum(Feature.lsui)] = .{
++        .llvm_name = "lsui",
++        .description = "Enable Armv9.6-A unprivileged load/store instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.lut)] = .{
+         .llvm_name = "lut",
+         .description = "Enable Lookup Table instructions",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .neon,
++        }),
+     };
+     result[@intFromEnum(Feature.mec)] = .{
+         .llvm_name = "mec",
+@@ -791,6 +871,11 @@ pub const all_features = blk: {
+         .description = "Enable Armv8.4-A Nested Virtualization Enchancement",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.occmo)] = .{
++        .llvm_name = "occmo",
++        .description = "Enable Armv9.6-A Outer cacheable cache maintenance operations",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.outline_atomics)] = .{
+         .llvm_name = "outline-atomics",
+         .description = "Enable out of line atomics to support LSE instructions",
+@@ -818,11 +903,21 @@ pub const all_features = blk: {
+         .description = "Enable Armv9.5-A PAC enhancements",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.pcdphint)] = .{
++        .llvm_name = "pcdphint",
++        .description = "Enable Armv9.6-A Producer Consumer Data Placement hints",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.perfmon)] = .{
+         .llvm_name = "perfmon",
+         .description = "Enable Armv8.0-A PMUv3 Performance Monitors extension",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.pops)] = .{
++        .llvm_name = "pops",
++        .description = "Enable Armv9.6-A Point Of Physical Storage (PoPS) DC instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.predictable_select_expensive)] = .{
+         .llvm_name = "predictable-select-expensive",
+         .description = "Prefer likely predicted branches over selects",
+@@ -1062,7 +1157,7 @@ pub const all_features = blk: {
+         .description = "Enable Scalable Matrix Extension (SME)",
+         .dependencies = featureSet(&[_]Feature{
+             .bf16,
+-            .use_scalar_inc_vl,
++            .fullfp16,
+         }),
+     };
+     result[@intFromEnum(Feature.sme2)] = .{
+@@ -1079,12 +1174,19 @@ pub const all_features = blk: {
+             .sme2,
+         }),
+     };
++    result[@intFromEnum(Feature.sme2p2)] = .{
++        .llvm_name = "sme2p2",
++        .description = "Enable Armv9.6-A Scalable Matrix Extension 2.2 instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .sme2p1,
++        }),
++    };
+     result[@intFromEnum(Feature.sme_b16b16)] = .{
+         .llvm_name = "sme-b16b16",
+         .description = "Enable SME2.1 ZA-targeting non-widening BFloat16 instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .b16b16,
+             .sme2,
++            .sve_b16b16,
+         }),
+     };
+     result[@intFromEnum(Feature.sme_f16f16)] = .{
+@@ -1105,7 +1207,8 @@ pub const all_features = blk: {
+         .llvm_name = "sme-f8f16",
+         .description = "Enable Scalable Matrix Extension (SME) F8F16 instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .sme_f8f32,
++            .fp8,
++            .sme2,
+         }),
+     };
+     result[@intFromEnum(Feature.sme_f8f32)] = .{
+@@ -1134,7 +1237,23 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.sme_lutv2)] = .{
+         .llvm_name = "sme-lutv2",
+         .description = "Enable Scalable Matrix Extension (SME) LUTv2 instructions",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .sme2,
++        }),
++    };
++    result[@intFromEnum(Feature.sme_mop4)] = .{
++        .llvm_name = "sme-mop4",
++        .description = "Enable SME Quarter-tile outer product instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .sme2,
++        }),
++    };
++    result[@intFromEnum(Feature.sme_tmop)] = .{
++        .llvm_name = "sme-tmop",
++        .description = "Enable SME Structured sparsity outer product instructions.",
++        .dependencies = featureSet(&[_]Feature{
++            .sme2,
++        }),
+     };
+     result[@intFromEnum(Feature.spe)] = .{
+         .llvm_name = "spe",
+@@ -1163,18 +1282,36 @@ pub const all_features = blk: {
+         .description = "Enable Speculative Store Bypass Safe bit",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.ssve_aes)] = .{
++        .llvm_name = "ssve-aes",
++        .description = "Enable Armv9.6-A SVE AES support in streaming SVE mode",
++        .dependencies = featureSet(&[_]Feature{
++            .sme2,
++            .sve_aes,
++        }),
++    };
++    result[@intFromEnum(Feature.ssve_bitperm)] = .{
++        .llvm_name = "ssve-bitperm",
++        .description = "Enable Armv9.6-A SVE BitPerm support in streaming SVE mode",
++        .dependencies = featureSet(&[_]Feature{
++            .sme2,
++            .sve_bitperm,
++        }),
++    };
+     result[@intFromEnum(Feature.ssve_fp8dot2)] = .{
+         .llvm_name = "ssve-fp8dot2",
+         .description = "Enable SVE2 FP8 2-way dot product instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .ssve_fp8dot4,
++            .fp8,
++            .sme2,
+         }),
+     };
+     result[@intFromEnum(Feature.ssve_fp8dot4)] = .{
+         .llvm_name = "ssve-fp8dot4",
+         .description = "Enable SVE2 FP8 4-way dot product instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .ssve_fp8fma,
++            .fp8,
++            .sme2,
+         }),
+     };
+     result[@intFromEnum(Feature.ssve_fp8fma)] = .{
+@@ -1212,22 +1349,22 @@ pub const all_features = blk: {
+         .description = "Enable Scalable Vector Extension 2 (SVE2) instructions",
+         .dependencies = featureSet(&[_]Feature{
+             .sve,
+-            .use_scalar_inc_vl,
+         }),
+     };
+     result[@intFromEnum(Feature.sve2_aes)] = .{
+         .llvm_name = "sve2-aes",
+-        .description = "Enable AES SVE2 instructions",
++        .description = "Shorthand for +sve2+sve-aes",
+         .dependencies = featureSet(&[_]Feature{
+-            .aes,
+             .sve2,
++            .sve_aes,
+         }),
+     };
+     result[@intFromEnum(Feature.sve2_bitperm)] = .{
+         .llvm_name = "sve2-bitperm",
+-        .description = "Enable bit permutation SVE2 instructions",
++        .description = "Shorthand for +sve2+sve-bitperm",
+         .dependencies = featureSet(&[_]Feature{
+             .sve2,
++            .sve_bitperm,
+         }),
+     };
+     result[@intFromEnum(Feature.sve2_sha3)] = .{
+@@ -1253,11 +1390,45 @@ pub const all_features = blk: {
+             .sve2,
+         }),
+     };
++    result[@intFromEnum(Feature.sve2p2)] = .{
++        .llvm_name = "sve2p2",
++        .description = "Enable Armv9.6-A Scalable Vector Extension 2.2 instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .sve2p1,
++        }),
++    };
++    result[@intFromEnum(Feature.sve_aes)] = .{
++        .llvm_name = "sve-aes",
++        .description = "Enable SVE AES and quadword SVE polynomial multiply instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .aes,
++        }),
++    };
++    result[@intFromEnum(Feature.sve_aes2)] = .{
++        .llvm_name = "sve-aes2",
++        .description = "Enable Armv9.6-A SVE multi-vector AES and multi-vector quadword polynomial multiply instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.sve_b16b16)] = .{
+         .llvm_name = "sve-b16b16",
+         .description = "Enable SVE2 non-widening and SME2 Z-targeting non-widening BFloat16 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sve_bfscale)] = .{
++        .llvm_name = "sve-bfscale",
++        .description = "Enable Armv9.6-A SVE BFloat16 scaling instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sve_bitperm)] = .{
++        .llvm_name = "sve-bitperm",
++        .description = "Enable bit permutation SVE2 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sve_f16f32mm)] = .{
++        .llvm_name = "sve-f16f32mm",
++        .description = "Enable Armv9.6-A FP16 to FP32 Matrix Multiply instructions",
+         .dependencies = featureSet(&[_]Feature{
+-            .b16b16,
++            .sve,
+         }),
+     };
+     result[@intFromEnum(Feature.tagged_globals)] = .{
+@@ -1340,11 +1511,6 @@ pub const all_features = blk: {
+         .description = "Use the reciprocal square root approximation",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.use_scalar_inc_vl)] = .{
+-        .llvm_name = "use-scalar-inc-vl",
+-        .description = "Prefer inc/dec over add+cnt",
+-        .dependencies = featureSet(&[_]Feature{}),
+-    };
+     result[@intFromEnum(Feature.v8_1a)] = .{
+         .llvm_name = "v8.1a",
+         .description = "Support ARM v8.1a architecture",
+@@ -1431,6 +1597,7 @@ pub const all_features = blk: {
+         .description = "Support ARM v8.7a architecture",
+         .dependencies = featureSet(&[_]Feature{
+             .hcx,
++            .spe_eef,
+             .v8_6a,
+             .wfxt,
+             .xs,
+@@ -1527,6 +1694,7 @@ pub const all_features = blk: {
+         .llvm_name = "v9.4a",
+         .description = "Support ARM v9.4a architecture",
+         .dependencies = featureSet(&[_]Feature{
++            .sve2p1,
+             .v8_9a,
+             .v9_3a,
+         }),
+@@ -1541,6 +1709,18 @@ pub const all_features = blk: {
+             .v9_4a,
+         }),
+     };
++    result[@intFromEnum(Feature.v9_6a)] = .{
++        .llvm_name = "v9.6a",
++        .description = "Support ARM v9.6a architecture",
++        .dependencies = featureSet(&[_]Feature{
++            .cmpbr,
++            .fprcvt,
++            .lsui,
++            .occmo,
++            .sve2p2,
++            .v9_5a,
++        }),
++    };
+     result[@intFromEnum(Feature.v9a)] = .{
+         .llvm_name = "v9a",
+         .description = "Support ARM v9a architecture",
+@@ -1820,7 +2000,9 @@ pub const cpu = struct {
+             .arith_cbz_fusion,
+             .disable_latency_sched_heuristic,
+             .fp16fml,
++            .fpac,
+             .fuse_address,
++            .fuse_adrp_add,
+             .fuse_aes,
+             .fuse_arith_logic,
+             .fuse_crypto_eor,
+@@ -1844,6 +2026,7 @@ pub const cpu = struct {
+             .arith_cbz_fusion,
+             .disable_latency_sched_heuristic,
+             .fp16fml,
++            .fpac,
+             .fuse_address,
+             .fuse_adrp_add,
+             .fuse_aes,
+@@ -1870,6 +2053,7 @@ pub const cpu = struct {
+             .arith_cbz_fusion,
+             .disable_latency_sched_heuristic,
+             .fp16fml,
++            .fpac,
+             .fuse_address,
+             .fuse_adrp_add,
+             .fuse_aes,
+@@ -1988,7 +2172,9 @@ pub const cpu = struct {
+             .arith_cbz_fusion,
+             .disable_latency_sched_heuristic,
+             .fp16fml,
++            .fpac,
+             .fuse_address,
++            .fuse_adrp_add,
+             .fuse_aes,
+             .fuse_arith_logic,
+             .fuse_crypto_eor,
+@@ -2012,6 +2198,7 @@ pub const cpu = struct {
+             .arith_cbz_fusion,
+             .disable_latency_sched_heuristic,
+             .fp16fml,
++            .fpac,
+             .fuse_address,
+             .fuse_adrp_add,
+             .fuse_aes,
+@@ -2038,7 +2225,9 @@ pub const cpu = struct {
+             .arith_cbz_fusion,
+             .disable_latency_sched_heuristic,
+             .fp16fml,
++            .fpac,
+             .fuse_address,
++            .fuse_adrp_add,
+             .fuse_aes,
+             .fuse_arith_logic,
+             .fuse_crypto_eor,
+@@ -2119,7 +2308,7 @@ pub const cpu = struct {
+             .mte,
+             .perfmon,
+             .predictable_select_expensive,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -2158,7 +2347,7 @@ pub const cpu = struct {
+             .i8mm,
+             .mte,
+             .perfmon,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -2173,7 +2362,7 @@ pub const cpu = struct {
+             .fuse_aes,
+             .mte,
+             .perfmon,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2188,7 +2377,7 @@ pub const cpu = struct {
+             .fuse_aes,
+             .mte,
+             .perfmon,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2300,7 +2489,7 @@ pub const cpu = struct {
+             .mte,
+             .perfmon,
+             .predictable_select_expensive,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -2322,7 +2511,7 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -2359,8 +2548,7 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2380,8 +2568,7 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2401,8 +2588,7 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2660,7 +2846,8 @@ pub const cpu = struct {
+             .mte,
+             .perfmon,
+             .predictable_select_expensive,
+-            .sve2_bitperm,
++            .sve_bitperm,
++            .use_fixed_over_scalable_if_equal_cost,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -2670,6 +2857,7 @@ pub const cpu = struct {
+         .llvm_name = "cortex-x3",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .bf16,
+             .enable_select_opt,
+             .ete,
+@@ -2681,7 +2869,8 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .sve2_bitperm,
++            .sve_bitperm,
++            .use_fixed_over_scalable_if_equal_cost,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -2691,6 +2880,7 @@ pub const cpu = struct {
+         .llvm_name = "cortex-x4",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .enable_select_opt,
+             .ete,
+             .fp16fml,
+@@ -2700,8 +2890,8 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
++            .use_fixed_over_scalable_if_equal_cost,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2711,6 +2901,7 @@ pub const cpu = struct {
+         .llvm_name = "cortex-x925",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .enable_select_opt,
+             .ete,
+             .fp16fml,
+@@ -2720,8 +2911,8 @@ pub const cpu = struct {
+             .perfmon,
+             .predictable_select_expensive,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
++            .use_fixed_over_scalable_if_equal_cost,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -2881,6 +3072,29 @@ pub const cpu = struct {
+             .zcz,
+         }),
+     };
++    pub const fujitsu_monaka: CpuModel = .{
++        .name = "fujitsu_monaka",
++        .llvm_name = "fujitsu-monaka",
++        .features = featureSet(&[_]Feature{
++            .clrbhb,
++            .ete,
++            .faminmax,
++            .fp16fml,
++            .fp8dot2,
++            .fpac,
++            .fujitsu_monaka,
++            .ls64,
++            .lut,
++            .perfmon,
++            .rand,
++            .specres2,
++            .sve2_sha3,
++            .sve2_sm4,
++            .sve_aes,
++            .sve_bitperm,
++            .v9_3a,
++        }),
++    };
+     pub const generic: CpuModel = .{
+         .name = "generic",
+         .llvm_name = "generic",
+@@ -2898,6 +3112,7 @@ pub const cpu = struct {
+         .llvm_name = "grace",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .bf16,
+             .cmp_bcc_fusion,
+             .enable_select_opt,
+@@ -2911,7 +3126,7 @@ pub const cpu = struct {
+             .predictable_select_expensive,
+             .rand,
+             .spe,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_fixed_over_scalable_if_equal_cost,
+             .use_postra_scheduler,
+             .v9a,
+@@ -3012,7 +3227,7 @@ pub const cpu = struct {
+             .mte,
+             .perfmon,
+             .predictable_select_expensive,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9a,
+         }),
+@@ -3032,8 +3247,7 @@ pub const cpu = struct {
+             .predictable_select_expensive,
+             .rand,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -3070,6 +3284,7 @@ pub const cpu = struct {
+         .llvm_name = "neoverse-v2",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .bf16,
+             .cmp_bcc_fusion,
+             .enable_select_opt,
+@@ -3083,7 +3298,7 @@ pub const cpu = struct {
+             .predictable_select_expensive,
+             .rand,
+             .spe,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_fixed_over_scalable_if_equal_cost,
+             .use_postra_scheduler,
+             .v9a,
+@@ -3094,6 +3309,7 @@ pub const cpu = struct {
+         .llvm_name = "neoverse-v3",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .brbe,
+             .enable_select_opt,
+             .ete,
+@@ -3106,8 +3322,7 @@ pub const cpu = struct {
+             .predictable_select_expensive,
+             .rand,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+@@ -3117,6 +3332,7 @@ pub const cpu = struct {
+         .llvm_name = "neoverse-v3ae",
+         .features = featureSet(&[_]Feature{
+             .alu_lsl_fast,
++            .avoid_ldapur,
+             .brbe,
+             .enable_select_opt,
+             .ete,
+@@ -3129,8 +3345,7 @@ pub const cpu = struct {
+             .predictable_select_expensive,
+             .rand,
+             .spe,
+-            .spe_eef,
+-            .sve2_bitperm,
++            .sve_bitperm,
+             .use_postra_scheduler,
+             .v9_2a,
+         }),
+diff --git a/lib/std/Target/amdgcn.zig b/lib/std/Target/amdgcn.zig
+index 97ce9edf12..9c435f06fe 100644
+--- a/lib/std/Target/amdgcn.zig
++++ b/lib/std/Target/amdgcn.zig
+@@ -8,11 +8,15 @@ pub const Feature = enum {
+     @"16_bit_insts",
+     a16,
+     add_no_carry_insts,
++    addressablelocalmemorysize163840,
++    addressablelocalmemorysize32768,
++    addressablelocalmemorysize65536,
+     agent_scope_fine_grained_remote_memory_atomics,
+     allocate1_5xvgprs,
+     aperture_regs,
+     architected_flat_scratch,
+     architected_sgprs,
++    ashr_pk_insts,
+     atomic_buffer_global_pk_add_f16_insts,
+     atomic_buffer_global_pk_add_f16_no_rtn_insts,
+     atomic_buffer_pk_add_bf16_inst,
+@@ -28,13 +32,20 @@ pub const Feature = enum {
+     atomic_global_pk_add_bf16_inst,
+     auto_waitcnt_before_barrier,
+     back_off_barrier,
++    bf16_cvt_insts,
++    bf8_cvt_scale_insts,
++    bitop3_insts,
+     ci_insts,
+     cumode,
++    cvt_fp8_vop1_bug,
++    cvt_pk_f16_f32_inst,
+     default_component_broadcast,
+     default_component_zero,
+     dl_insts,
+     dot10_insts,
+     dot11_insts,
++    dot12_insts,
++    dot13_insts,
+     dot1_insts,
+     dot2_insts,
+     dot3_insts,
+@@ -51,6 +62,8 @@ pub const Feature = enum {
+     ds128,
+     ds_src2_insts,
+     extended_image_insts,
++    f16bf16_to_fp6bf6_cvt_scale_insts,
++    f32_to_f16bf16_cvt_sr_insts,
+     fast_denormal_f32,
+     fast_fmaf,
+     flat_address_space,
+@@ -66,8 +79,11 @@ pub const Feature = enum {
+     fmacf64_inst,
+     fmaf,
+     force_store_sc0_sc1,
++    fp4_cvt_scale_insts,
+     fp64,
++    fp6bf6_cvt_scale_insts,
+     fp8_conversion_insts,
++    fp8_cvt_scale_insts,
+     fp8_insts,
+     full_rate_64_ops,
+     g16,
+@@ -88,6 +104,7 @@ pub const Feature = enum {
+     gfx9,
+     gfx90a_insts,
+     gfx940_insts,
++    gfx950_insts,
+     gfx9_insts,
+     gws,
+     half_rate_64_ops,
+@@ -103,8 +120,6 @@ pub const Feature = enum {
+     ldsbankcount16,
+     ldsbankcount32,
+     load_store_opt,
+-    localmemorysize32768,
+-    localmemorysize65536,
+     mad_intra_fwd_bug,
+     mad_mac_f32_insts,
+     mad_mix_insts,
+@@ -117,6 +132,9 @@ pub const Feature = enum {
+     memory_atomic_fadd_f32_denormal_support,
+     mfma_inline_literal_bug,
+     mimg_r128,
++    minimum3_maximum3_f16,
++    minimum3_maximum3_f32,
++    minimum3_maximum3_pkf16,
+     movrel,
+     msaa_load_dst_sel_bug,
+     negative_scratch_offset_bug,
+@@ -130,9 +148,12 @@ pub const Feature = enum {
+     packed_fp32_ops,
+     packed_tid,
+     partial_nsa_encoding,
++    permlane16_swap,
++    permlane32_swap,
+     pk_fmac_f16_inst,
+     precise_memory,
+     priv_enabled_trap2_nop_bug,
++    prng_inst,
+     promote_alloca,
+     prt_strict_null,
+     pseudo_scalar_trans,
+@@ -178,7 +199,6 @@ pub const Feature = enum {
+     vcmpx_exec_war_hazard,
+     vcmpx_permlane_hazard,
+     vgpr_index_mode,
+-    vgpr_singleuse_hint,
+     vmem_to_scalar_write_hazard,
+     vmem_write_vgpr_in_order,
+     volcanic_islands,
+@@ -189,6 +209,7 @@ pub const Feature = enum {
+     wavefrontsize16,
+     wavefrontsize32,
+     wavefrontsize64,
++    xf32_insts,
+     xnack,
+     xnack_support,
+ };
+@@ -217,6 +238,21 @@ pub const all_features = blk: {
+         .description = "Have VALU add/sub instructions without carry out",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.addressablelocalmemorysize163840)] = .{
++        .llvm_name = "addressablelocalmemorysize163840",
++        .description = "The size of local memory in bytes",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.addressablelocalmemorysize32768)] = .{
++        .llvm_name = "addressablelocalmemorysize32768",
++        .description = "The size of local memory in bytes",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.addressablelocalmemorysize65536)] = .{
++        .llvm_name = "addressablelocalmemorysize65536",
++        .description = "The size of local memory in bytes",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.agent_scope_fine_grained_remote_memory_atomics)] = .{
+         .llvm_name = "agent-scope-fine-grained-remote-memory-atomics",
+         .description = "Agent (device) scoped atomic operations, excluding those directly supported by PCIe (i.e. integer atomic add, exchange, and compare-and-swap), are functional for allocations in host or peer device memory.",
+@@ -242,6 +278,11 @@ pub const all_features = blk: {
+         .description = "Enable the architected SGPRs",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.ashr_pk_insts)] = .{
++        .llvm_name = "ashr-pk-insts",
++        .description = "Has Arithmetic Shift Pack instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.atomic_buffer_global_pk_add_f16_insts)] = .{
+         .llvm_name = "atomic-buffer-global-pk-add-f16-insts",
+         .description = "Has buffer_atomic_pk_add_f16 and global_atomic_pk_add_f16 instructions that can return original value",
+@@ -327,6 +368,21 @@ pub const all_features = blk: {
+         .description = "Hardware supports backing off s_barrier if an exception occurs",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.bf16_cvt_insts)] = .{
++        .llvm_name = "bf16-cvt-insts",
++        .description = "Has bf16 conversion instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.bf8_cvt_scale_insts)] = .{
++        .llvm_name = "bf8-cvt-scale-insts",
++        .description = "Has bf8 conversion scale instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.bitop3_insts)] = .{
++        .llvm_name = "bitop3-insts",
++        .description = "Has v_bitop3_b32/v_bitop3_b16 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.ci_insts)] = .{
+         .llvm_name = "ci-insts",
+         .description = "Additional instructions for CI+",
+@@ -337,6 +393,18 @@ pub const all_features = blk: {
+         .description = "Enable CU wavefront execution mode",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.cvt_fp8_vop1_bug)] = .{
++        .llvm_name = "cvt-fp8-vop1-bug",
++        .description = "FP8/BF8 VOP1 form of conversion to F32 is unreliable",
++        .dependencies = featureSet(&[_]Feature{
++            .fp8_conversion_insts,
++        }),
++    };
++    result[@intFromEnum(Feature.cvt_pk_f16_f32_inst)] = .{
++        .llvm_name = "cvt-pk-f16-f32-inst",
++        .description = "Has cvt_pk_f16_f32 instruction",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.default_component_broadcast)] = .{
+         .llvm_name = "default-component-broadcast",
+         .description = "BUFFER/IMAGE store instructions set unspecified components to x component (GFX12)",
+@@ -362,6 +430,16 @@ pub const all_features = blk: {
+         .description = "Has v_dot4_f32_fp8_fp8, v_dot4_f32_fp8_bf8, v_dot4_f32_bf8_fp8, v_dot4_f32_bf8_bf8 instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.dot12_insts)] = .{
++        .llvm_name = "dot12-insts",
++        .description = "Has v_dot2_f32_bf16 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.dot13_insts)] = .{
++        .llvm_name = "dot13-insts",
++        .description = "Has v_dot2c_f32_bf16 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.dot1_insts)] = .{
+         .llvm_name = "dot1-insts",
+         .description = "Has v_dot4_i32_i8 and v_dot8_i32_i4 instructions",
+@@ -404,7 +482,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.dot9_insts)] = .{
+         .llvm_name = "dot9-insts",
+-        .description = "Has v_dot2_f16_f16, v_dot2_bf16_bf16, v_dot2_f32_bf16 instructions",
++        .description = "Has v_dot2_f16_f16, v_dot2_bf16_bf16 instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.dpp)] = .{
+@@ -442,6 +520,16 @@ pub const all_features = blk: {
+         .description = "Support mips != 0, lod != 0, gather4, and get_lod",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.f16bf16_to_fp6bf6_cvt_scale_insts)] = .{
++        .llvm_name = "f16bf16-to-fp6bf6-cvt-scale-insts",
++        .description = "Has f16bf16 to fp6bf6 conversion scale instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.f32_to_f16bf16_cvt_sr_insts)] = .{
++        .llvm_name = "f32-to-f16bf16-cvt-sr-insts",
++        .description = "Has f32 to f16bf16 conversion scale instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.fast_denormal_f32)] = .{
+         .llvm_name = "fast-denormal-f32",
+         .description = "Enabling denormals does not cause f32 instructions to run at f64 rates",
+@@ -517,16 +605,31 @@ pub const all_features = blk: {
+         .description = "Has SC0 and SC1 on stores",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.fp4_cvt_scale_insts)] = .{
++        .llvm_name = "fp4-cvt-scale-insts",
++        .description = "Has fp4 conversion scale instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.fp64)] = .{
+         .llvm_name = "fp64",
+         .description = "Enable double precision operations",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.fp6bf6_cvt_scale_insts)] = .{
++        .llvm_name = "fp6bf6-cvt-scale-insts",
++        .description = "Has fp6 and bf6 conversion scale instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.fp8_conversion_insts)] = .{
+         .llvm_name = "fp8-conversion-insts",
+         .description = "Has fp8 and bf8 conversion instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.fp8_cvt_scale_insts)] = .{
++        .llvm_name = "fp8-cvt-scale-insts",
++        .description = "Has fp8 conversion scale instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.fp8_insts)] = .{
+         .llvm_name = "fp8-insts",
+         .description = "Has fp8 and bf8 instructions",
+@@ -564,6 +667,7 @@ pub const all_features = blk: {
+             .@"16_bit_insts",
+             .a16,
+             .add_no_carry_insts,
++            .addressablelocalmemorysize65536,
+             .aperture_regs,
+             .atomic_fmin_fmax_flat_f32,
+             .atomic_fmin_fmax_flat_f64,
+@@ -591,7 +695,6 @@ pub const all_features = blk: {
+             .image_insts,
+             .int_clamp_insts,
+             .inv_2pi_inline_imm,
+-            .localmemorysize65536,
+             .max_hard_clause_length_63,
+             .mimg_r128,
+             .movrel,
+@@ -606,6 +709,7 @@ pub const all_features = blk: {
+             .sdwa_sdst,
+             .unaligned_buffer_access,
+             .unaligned_ds_access,
++            .unaligned_scratch_access,
+             .vmem_write_vgpr_in_order,
+             .vop3_literal,
+             .vop3p,
+@@ -639,6 +743,7 @@ pub const all_features = blk: {
+             .@"16_bit_insts",
+             .a16,
+             .add_no_carry_insts,
++            .addressablelocalmemorysize65536,
+             .aperture_regs,
+             .atomic_fmin_fmax_flat_f32,
+             .atomic_fmin_fmax_global_f32,
+@@ -667,7 +772,6 @@ pub const all_features = blk: {
+             .gws,
+             .int_clamp_insts,
+             .inv_2pi_inline_imm,
+-            .localmemorysize65536,
+             .max_hard_clause_length_32,
+             .mimg_r128,
+             .movrel,
+@@ -677,6 +781,7 @@ pub const all_features = blk: {
+             .true16,
+             .unaligned_buffer_access,
+             .unaligned_ds_access,
++            .unaligned_scratch_access,
+             .vmem_write_vgpr_in_order,
+             .vop3_literal,
+             .vop3p,
+@@ -696,6 +801,7 @@ pub const all_features = blk: {
+             .@"16_bit_insts",
+             .a16,
+             .add_no_carry_insts,
++            .addressablelocalmemorysize65536,
+             .agent_scope_fine_grained_remote_memory_atomics,
+             .aperture_regs,
+             .atomic_fmin_fmax_flat_f32,
+@@ -723,9 +829,10 @@ pub const all_features = blk: {
+             .gfx9_insts,
+             .int_clamp_insts,
+             .inv_2pi_inline_imm,
+-            .localmemorysize65536,
+             .max_hard_clause_length_32,
+             .mimg_r128,
++            .minimum3_maximum3_f16,
++            .minimum3_maximum3_f32,
+             .movrel,
+             .no_data_dep_hazard,
+             .no_sdst_cmpx,
+@@ -733,6 +840,7 @@ pub const all_features = blk: {
+             .true16,
+             .unaligned_buffer_access,
+             .unaligned_ds_access,
++            .unaligned_scratch_access,
+             .vop3_literal,
+             .vop3p,
+             .vopd,
+@@ -779,7 +887,6 @@ pub const all_features = blk: {
+             .gws,
+             .int_clamp_insts,
+             .inv_2pi_inline_imm,
+-            .localmemorysize65536,
+             .negative_scratch_offset_bug,
+             .r128_a16,
+             .s_memrealtime,
+@@ -793,6 +900,7 @@ pub const all_features = blk: {
+             .sdwa_sdst,
+             .unaligned_buffer_access,
+             .unaligned_ds_access,
++            .unaligned_scratch_access,
+             .vgpr_index_mode,
+             .vmem_write_vgpr_in_order,
+             .vop3p,
+@@ -810,6 +918,24 @@ pub const all_features = blk: {
+         .description = "Additional instructions for GFX940+",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.gfx950_insts)] = .{
++        .llvm_name = "gfx950-insts",
++        .description = "Additional instructions for GFX950+",
++        .dependencies = featureSet(&[_]Feature{
++            .ashr_pk_insts,
++            .bf8_cvt_scale_insts,
++            .cvt_pk_f16_f32_inst,
++            .f16bf16_to_fp6bf6_cvt_scale_insts,
++            .f32_to_f16bf16_cvt_sr_insts,
++            .fp4_cvt_scale_insts,
++            .fp6bf6_cvt_scale_insts,
++            .fp8_cvt_scale_insts,
++            .minimum3_maximum3_f32,
++            .minimum3_maximum3_pkf16,
++            .permlane16_swap,
++            .permlane32_swap,
++        }),
++    };
+     result[@intFromEnum(Feature.gfx9_insts)] = .{
+         .llvm_name = "gfx9-insts",
+         .description = "Additional instructions for GFX9+",
+@@ -885,16 +1011,6 @@ pub const all_features = blk: {
+         .description = "Enable SI load/store optimizer pass",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.localmemorysize32768)] = .{
+-        .llvm_name = "localmemorysize32768",
+-        .description = "The size of local memory in bytes",
+-        .dependencies = featureSet(&[_]Feature{}),
+-    };
+-    result[@intFromEnum(Feature.localmemorysize65536)] = .{
+-        .llvm_name = "localmemorysize65536",
+-        .description = "The size of local memory in bytes",
+-        .dependencies = featureSet(&[_]Feature{}),
+-    };
+     result[@intFromEnum(Feature.mad_intra_fwd_bug)] = .{
+         .llvm_name = "mad-intra-fwd-bug",
+         .description = "MAD_U64/I64 intra instruction forwarding bug",
+@@ -955,6 +1071,21 @@ pub const all_features = blk: {
+         .description = "Support 128-bit texture resources",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.minimum3_maximum3_f16)] = .{
++        .llvm_name = "minimum3-maximum3-f16",
++        .description = "Has v_minimum3_f16 and v_maximum3_f16 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.minimum3_maximum3_f32)] = .{
++        .llvm_name = "minimum3-maximum3-f32",
++        .description = "Has v_minimum3_f32 and v_maximum3_f32 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.minimum3_maximum3_pkf16)] = .{
++        .llvm_name = "minimum3-maximum3-pkf16",
++        .description = "Has v_pk_minimum3_f16 and v_pk_maximum3_f16 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.movrel)] = .{
+         .llvm_name = "movrel",
+         .description = "Has v_movrel*_b32 instructions",
+@@ -1020,6 +1151,16 @@ pub const all_features = blk: {
+         .description = "Support partial NSA encoding for image instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.permlane16_swap)] = .{
++        .llvm_name = "permlane16-swap",
++        .description = "Has v_permlane16_swap_b32 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.permlane32_swap)] = .{
++        .llvm_name = "permlane32-swap",
++        .description = "Has v_permlane32_swap_b32 instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.pk_fmac_f16_inst)] = .{
+         .llvm_name = "pk-fmac-f16-inst",
+         .description = "Has v_pk_fmac_f16 instruction",
+@@ -1035,6 +1176,11 @@ pub const all_features = blk: {
+         .description = "Hardware that runs with PRIV=1 interpreting 's_trap 2' as a nop bug",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.prng_inst)] = .{
++        .llvm_name = "prng-inst",
++        .description = "Has v_prng_b32 instruction",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.promote_alloca)] = .{
+         .llvm_name = "promote-alloca",
+         .description = "Enable promote alloca pass",
+@@ -1144,6 +1290,7 @@ pub const all_features = blk: {
+         .llvm_name = "sea-islands",
+         .description = "SEA_ISLANDS GPU generation",
+         .dependencies = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .atomic_fmin_fmax_flat_f32,
+             .atomic_fmin_fmax_flat_f64,
+             .atomic_fmin_fmax_global_f32,
+@@ -1158,7 +1305,6 @@ pub const all_features = blk: {
+             .gfx7_gfx8_gfx9_insts,
+             .gws,
+             .image_insts,
+-            .localmemorysize65536,
+             .mad_mac_f32_insts,
+             .mimg_r128,
+             .movrel,
+@@ -1198,6 +1344,7 @@ pub const all_features = blk: {
+         .llvm_name = "southern-islands",
+         .description = "SOUTHERN_ISLANDS GPU generation",
+         .dependencies = featureSet(&[_]Feature{
++            .addressablelocalmemorysize32768,
+             .atomic_fmin_fmax_global_f32,
+             .atomic_fmin_fmax_global_f64,
+             .default_component_zero,
+@@ -1208,7 +1355,6 @@ pub const all_features = blk: {
+             .gws,
+             .image_insts,
+             .ldsbankcount32,
+-            .localmemorysize32768,
+             .mad_mac_f32_insts,
+             .mimg_r128,
+             .movrel,
+@@ -1303,11 +1449,6 @@ pub const all_features = blk: {
+         .description = "Has VGPR mode register indexing",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.vgpr_singleuse_hint)] = .{
+-        .llvm_name = "vgpr-singleuse-hint",
+-        .description = "Has single-use VGPR hint instructions",
+-        .dependencies = featureSet(&[_]Feature{}),
+-    };
+     result[@intFromEnum(Feature.vmem_to_scalar_write_hazard)] = .{
+         .llvm_name = "vmem-to-scalar-write-hazard",
+         .description = "VMEM instruction followed by scalar writing to EXEC mask, M0 or SGPR leads to incorrect execution.",
+@@ -1323,6 +1464,7 @@ pub const all_features = blk: {
+         .description = "VOLCANIC_ISLANDS GPU generation",
+         .dependencies = featureSet(&[_]Feature{
+             .@"16_bit_insts",
++            .addressablelocalmemorysize65536,
+             .ci_insts,
+             .default_component_zero,
+             .dpp,
+@@ -1339,7 +1481,6 @@ pub const all_features = blk: {
+             .image_insts,
+             .int_clamp_insts,
+             .inv_2pi_inline_imm,
+-            .localmemorysize65536,
+             .mad_mac_f32_insts,
+             .mimg_r128,
+             .movrel,
+@@ -1391,6 +1532,11 @@ pub const all_features = blk: {
+         .description = "The number of threads per wavefront",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.xf32_insts)] = .{
++        .llvm_name = "xf32-insts",
++        .description = "Has instructions that support xf32 format, such as v_mfma_f32_16x16x8_xf32 and v_mfma_f32_32x32x4_xf32",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.xnack)] = .{
+         .llvm_name = "xnack",
+         .description = "Enable XNACK support",
+@@ -1445,7 +1591,6 @@ pub const cpu = struct {
+         .features = featureSet(&[_]Feature{
+             .gds,
+             .gws,
+-            .wavefrontsize64,
+         }),
+     };
+     pub const generic_hsa: CpuModel = .{
+@@ -1455,7 +1600,6 @@ pub const cpu = struct {
+             .flat_address_space,
+             .gds,
+             .gws,
+-            .wavefrontsize64,
+         }),
+     };
+     pub const gfx1010: CpuModel = .{
+@@ -1801,6 +1945,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1832,6 +1977,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1861,6 +2007,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1891,6 +2038,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1920,6 +2068,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1937,7 +2086,6 @@ pub const cpu = struct {
+             .salu_float,
+             .shader_cycles_register,
+             .vcmpx_permlane_hazard,
+-            .vgpr_singleuse_hint,
+         }),
+     };
+     pub const gfx1151: CpuModel = .{
+@@ -1950,6 +2098,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1967,7 +2116,6 @@ pub const cpu = struct {
+             .salu_float,
+             .shader_cycles_register,
+             .vcmpx_permlane_hazard,
+-            .vgpr_singleuse_hint,
+         }),
+     };
+     pub const gfx1152: CpuModel = .{
+@@ -1979,6 +2127,36 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
++            .dot5_insts,
++            .dot7_insts,
++            .dot8_insts,
++            .dot9_insts,
++            .dpp_src1_sgpr,
++            .flat_atomic_fadd_f32_inst,
++            .gfx11,
++            .image_insts,
++            .ldsbankcount32,
++            .memory_atomic_fadd_f32_denormal_support,
++            .nsa_encoding,
++            .packed_tid,
++            .partial_nsa_encoding,
++            .required_export_priority,
++            .salu_float,
++            .shader_cycles_register,
++            .vcmpx_permlane_hazard,
++        }),
++    };
++    pub const gfx1153: CpuModel = .{
++        .name = "gfx1153",
++        .llvm_name = "gfx1153",
++        .features = featureSet(&[_]Feature{
++            .architected_flat_scratch,
++            .atomic_fadd_no_rtn_insts,
++            .atomic_fadd_rtn_insts,
++            .dl_insts,
++            .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -1996,7 +2174,6 @@ pub const cpu = struct {
+             .salu_float,
+             .shader_cycles_register,
+             .vcmpx_permlane_hazard,
+-            .vgpr_singleuse_hint,
+         }),
+     };
+     pub const gfx11_generic: CpuModel = .{
+@@ -2008,6 +2185,7 @@ pub const cpu = struct {
+             .atomic_fadd_rtn_insts,
+             .dl_insts,
+             .dot10_insts,
++            .dot12_insts,
+             .dot5_insts,
+             .dot7_insts,
+             .dot8_insts,
+@@ -2048,6 +2226,7 @@ pub const cpu = struct {
+             .dl_insts,
+             .dot10_insts,
+             .dot11_insts,
++            .dot12_insts,
+             .dot7_insts,
+             .dot8_insts,
+             .dot9_insts,
+@@ -2068,7 +2247,6 @@ pub const cpu = struct {
+             .scalar_dwordx3_loads,
+             .shader_cycles_hi_lo_registers,
+             .vcmpx_permlane_hazard,
+-            .vgpr_singleuse_hint,
+         }),
+     };
+     pub const gfx1201: CpuModel = .{
+@@ -2088,6 +2266,7 @@ pub const cpu = struct {
+             .dl_insts,
+             .dot10_insts,
+             .dot11_insts,
++            .dot12_insts,
+             .dot7_insts,
+             .dot8_insts,
+             .dot9_insts,
+@@ -2108,7 +2287,6 @@ pub const cpu = struct {
+             .scalar_dwordx3_loads,
+             .shader_cycles_hi_lo_registers,
+             .vcmpx_permlane_hazard,
+-            .vgpr_singleuse_hint,
+         }),
+     };
+     pub const gfx12_generic: CpuModel = .{
+@@ -2128,6 +2306,7 @@ pub const cpu = struct {
+             .dl_insts,
+             .dot10_insts,
+             .dot11_insts,
++            .dot12_insts,
+             .dot7_insts,
+             .dot8_insts,
+             .dot9_insts,
+@@ -2149,7 +2328,6 @@ pub const cpu = struct {
+             .scalar_dwordx3_loads,
+             .shader_cycles_hi_lo_registers,
+             .vcmpx_permlane_hazard,
+-            .vgpr_singleuse_hint,
+         }),
+     };
+     pub const gfx600: CpuModel = .{
+@@ -2282,6 +2460,7 @@ pub const cpu = struct {
+         .name = "gfx900",
+         .llvm_name = "gfx900",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .ds_src2_insts,
+             .extended_image_insts,
+             .gds,
+@@ -2297,6 +2476,7 @@ pub const cpu = struct {
+         .name = "gfx902",
+         .llvm_name = "gfx902",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .ds_src2_insts,
+             .extended_image_insts,
+             .gds,
+@@ -2312,6 +2492,7 @@ pub const cpu = struct {
+         .name = "gfx904",
+         .llvm_name = "gfx904",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .ds_src2_insts,
+             .extended_image_insts,
+             .fma_mix_insts,
+@@ -2327,6 +2508,7 @@ pub const cpu = struct {
+         .name = "gfx906",
+         .llvm_name = "gfx906",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .dl_insts,
+             .dot10_insts,
+             .dot1_insts,
+@@ -2349,6 +2531,7 @@ pub const cpu = struct {
+         .name = "gfx908",
+         .llvm_name = "gfx908",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .atomic_buffer_global_pk_add_f16_no_rtn_insts,
+             .atomic_fadd_no_rtn_insts,
+             .dl_insts,
+@@ -2380,6 +2563,7 @@ pub const cpu = struct {
+         .name = "gfx909",
+         .llvm_name = "gfx909",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .ds_src2_insts,
+             .extended_image_insts,
+             .gds,
+@@ -2395,6 +2579,7 @@ pub const cpu = struct {
+         .name = "gfx90a",
+         .llvm_name = "gfx90a",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .atomic_buffer_global_pk_add_f16_insts,
+             .atomic_fadd_no_rtn_insts,
+             .atomic_fadd_rtn_insts,
+@@ -2432,6 +2617,7 @@ pub const cpu = struct {
+         .name = "gfx90c",
+         .llvm_name = "gfx90c",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .ds_src2_insts,
+             .extended_image_insts,
+             .gds,
+@@ -2447,6 +2633,7 @@ pub const cpu = struct {
+         .name = "gfx940",
+         .llvm_name = "gfx940",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .agent_scope_fine_grained_remote_memory_atomics,
+             .architected_flat_scratch,
+             .atomic_buffer_global_pk_add_f16_insts,
+@@ -2458,6 +2645,7 @@ pub const cpu = struct {
+             .atomic_fmin_fmax_global_f64,
+             .atomic_global_pk_add_bf16_inst,
+             .back_off_barrier,
++            .cvt_fp8_vop1_bug,
+             .dl_insts,
+             .dot10_insts,
+             .dot1_insts,
+@@ -2473,7 +2661,6 @@ pub const cpu = struct {
+             .fma_mix_insts,
+             .fmacf64_inst,
+             .force_store_sc0_sc1,
+-            .fp8_conversion_insts,
+             .fp8_insts,
+             .full_rate_64_ops,
+             .gfx9,
+@@ -2487,12 +2674,14 @@ pub const cpu = struct {
+             .packed_tid,
+             .pk_fmac_f16_inst,
+             .sramecc_support,
++            .xf32_insts,
+         }),
+     };
+     pub const gfx941: CpuModel = .{
+         .name = "gfx941",
+         .llvm_name = "gfx941",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .agent_scope_fine_grained_remote_memory_atomics,
+             .architected_flat_scratch,
+             .atomic_buffer_global_pk_add_f16_insts,
+@@ -2504,6 +2693,7 @@ pub const cpu = struct {
+             .atomic_fmin_fmax_global_f64,
+             .atomic_global_pk_add_bf16_inst,
+             .back_off_barrier,
++            .cvt_fp8_vop1_bug,
+             .dl_insts,
+             .dot10_insts,
+             .dot1_insts,
+@@ -2519,7 +2709,6 @@ pub const cpu = struct {
+             .fma_mix_insts,
+             .fmacf64_inst,
+             .force_store_sc0_sc1,
+-            .fp8_conversion_insts,
+             .fp8_insts,
+             .full_rate_64_ops,
+             .gfx9,
+@@ -2533,12 +2722,14 @@ pub const cpu = struct {
+             .packed_tid,
+             .pk_fmac_f16_inst,
+             .sramecc_support,
++            .xf32_insts,
+         }),
+     };
+     pub const gfx942: CpuModel = .{
+         .name = "gfx942",
+         .llvm_name = "gfx942",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .agent_scope_fine_grained_remote_memory_atomics,
+             .architected_flat_scratch,
+             .atomic_buffer_global_pk_add_f16_insts,
+@@ -2550,6 +2741,7 @@ pub const cpu = struct {
+             .atomic_fmin_fmax_global_f64,
+             .atomic_global_pk_add_bf16_inst,
+             .back_off_barrier,
++            .cvt_fp8_vop1_bug,
+             .dl_insts,
+             .dot10_insts,
+             .dot1_insts,
+@@ -2564,12 +2756,64 @@ pub const cpu = struct {
+             .flat_buffer_global_fadd_f64_inst,
+             .fma_mix_insts,
+             .fmacf64_inst,
++            .fp8_insts,
++            .full_rate_64_ops,
++            .gfx9,
++            .gfx90a_insts,
++            .gfx940_insts,
++            .kernarg_preload,
++            .ldsbankcount32,
++            .mai_insts,
++            .memory_atomic_fadd_f32_denormal_support,
++            .packed_fp32_ops,
++            .packed_tid,
++            .pk_fmac_f16_inst,
++            .sramecc_support,
++            .xf32_insts,
++        }),
++    };
++    pub const gfx950: CpuModel = .{
++        .name = "gfx950",
++        .llvm_name = "gfx950",
++        .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize163840,
++            .agent_scope_fine_grained_remote_memory_atomics,
++            .architected_flat_scratch,
++            .atomic_buffer_global_pk_add_f16_insts,
++            .atomic_buffer_pk_add_bf16_inst,
++            .atomic_ds_pk_add_16_insts,
++            .atomic_fadd_no_rtn_insts,
++            .atomic_fadd_rtn_insts,
++            .atomic_flat_pk_add_16_insts,
++            .atomic_fmin_fmax_flat_f64,
++            .atomic_fmin_fmax_global_f64,
++            .atomic_global_pk_add_bf16_inst,
++            .back_off_barrier,
++            .bf16_cvt_insts,
++            .bitop3_insts,
++            .dl_insts,
++            .dot10_insts,
++            .dot12_insts,
++            .dot13_insts,
++            .dot1_insts,
++            .dot2_insts,
++            .dot3_insts,
++            .dot4_insts,
++            .dot5_insts,
++            .dot6_insts,
++            .dot7_insts,
++            .dpp_64bit,
++            .flat_atomic_fadd_f32_inst,
++            .flat_buffer_global_fadd_f64_inst,
++            .fma_mix_insts,
++            .fmacf64_inst,
+             .fp8_conversion_insts,
+             .fp8_insts,
+             .full_rate_64_ops,
+             .gfx9,
+             .gfx90a_insts,
+             .gfx940_insts,
++            .gfx950_insts,
+             .kernarg_preload,
+             .ldsbankcount32,
+             .mai_insts,
+@@ -2577,6 +2821,52 @@ pub const cpu = struct {
+             .packed_fp32_ops,
+             .packed_tid,
+             .pk_fmac_f16_inst,
++            .prng_inst,
++            .sramecc_support,
++        }),
++    };
++    pub const gfx9_4_generic: CpuModel = .{
++        .name = "gfx9_4_generic",
++        .llvm_name = "gfx9-4-generic",
++        .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
++            .agent_scope_fine_grained_remote_memory_atomics,
++            .architected_flat_scratch,
++            .atomic_buffer_global_pk_add_f16_insts,
++            .atomic_ds_pk_add_16_insts,
++            .atomic_fadd_no_rtn_insts,
++            .atomic_fadd_rtn_insts,
++            .atomic_flat_pk_add_16_insts,
++            .atomic_fmin_fmax_flat_f64,
++            .atomic_fmin_fmax_global_f64,
++            .atomic_global_pk_add_bf16_inst,
++            .back_off_barrier,
++            .dl_insts,
++            .dot10_insts,
++            .dot1_insts,
++            .dot2_insts,
++            .dot3_insts,
++            .dot4_insts,
++            .dot5_insts,
++            .dot6_insts,
++            .dot7_insts,
++            .dpp_64bit,
++            .flat_atomic_fadd_f32_inst,
++            .flat_buffer_global_fadd_f64_inst,
++            .fma_mix_insts,
++            .fmacf64_inst,
++            .full_rate_64_ops,
++            .gfx9,
++            .gfx90a_insts,
++            .gfx940_insts,
++            .kernarg_preload,
++            .ldsbankcount32,
++            .mai_insts,
++            .memory_atomic_fadd_f32_denormal_support,
++            .packed_fp32_ops,
++            .packed_tid,
++            .pk_fmac_f16_inst,
++            .requires_cov6,
+             .sramecc_support,
+         }),
+     };
+@@ -2584,6 +2874,7 @@ pub const cpu = struct {
+         .name = "gfx9_generic",
+         .llvm_name = "gfx9-generic",
+         .features = featureSet(&[_]Feature{
++            .addressablelocalmemorysize65536,
+             .ds_src2_insts,
+             .extended_image_insts,
+             .gds,
+diff --git a/lib/std/Target/arm.zig b/lib/std/Target/arm.zig
+index baf60a8863..adb3288981 100644
+--- a/lib/std/Target/arm.zig
++++ b/lib/std/Target/arm.zig
+@@ -13,9 +13,11 @@ pub const Feature = enum {
+     aes,
+     atomics_32,
+     avoid_movs_shop,
++    avoid_muls,
+     avoid_partial_cpsr,
+     bf16,
+     big_endian_instructions,
++    branch_align_64,
+     cde,
+     cdecp0,
+     cdecp1,
+@@ -27,6 +29,7 @@ pub const Feature = enum {
+     cdecp7,
+     cheap_predicable_cpsr,
+     clrbhb,
++    cortex_a510,
+     crc,
+     crypto,
+     d32,
+@@ -84,6 +87,7 @@ pub const Feature = enum {
+     has_v9_3a,
+     has_v9_4a,
+     has_v9_5a,
++    has_v9_6a,
+     has_v9a,
+     hwdiv,
+     hwdiv_arm,
+@@ -93,6 +97,8 @@ pub const Feature = enum {
+     lob,
+     long_calls,
+     loop_align,
++    m55,
++    m85,
+     mclass,
+     mp,
+     muxed_units,
+@@ -180,6 +186,7 @@ pub const Feature = enum {
+     v9_3a,
+     v9_4a,
+     v9_5a,
++    v9_6a,
+     v9a,
+     vfp2,
+     vfp2sp,
+@@ -252,6 +259,11 @@ pub const all_features = blk: {
+         .description = "Avoid movs instructions with shifter operand",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.avoid_muls)] = .{
++        .llvm_name = "avoid-muls",
++        .description = "Avoid MULS instructions for M class cores",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.avoid_partial_cpsr)] = .{
+         .llvm_name = "avoid-partial-cpsr",
+         .description = "Avoid CPSR partial update for OOO execution",
+@@ -269,6 +281,11 @@ pub const all_features = blk: {
+         .description = "Expect instructions to be stored big-endian.",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.branch_align_64)] = .{
++        .llvm_name = "branch-align-64",
++        .description = "Prefer 64-bit alignment for branch targets",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.cde)] = .{
+         .llvm_name = "cde",
+         .description = "Support CDE instructions",
+@@ -342,6 +359,11 @@ pub const all_features = blk: {
+         .description = "Enable Clear BHB instruction",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.cortex_a510)] = .{
++        .llvm_name = "cortex-a510",
++        .description = "Cortex-A510 ARM processors",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.crc)] = .{
+         .llvm_name = "crc",
+         .description = "Enable support for CRC instructions",
+@@ -719,6 +741,13 @@ pub const all_features = blk: {
+             .has_v9_4a,
+         }),
+     };
++    result[@intFromEnum(Feature.has_v9_6a)] = .{
++        .llvm_name = "v9.6a",
++        .description = "Support ARM v9.6a instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .has_v9_5a,
++        }),
++    };
+     result[@intFromEnum(Feature.has_v9a)] = .{
+         .llvm_name = "v9a",
+         .description = "Support ARM v9a instructions",
+@@ -769,7 +798,17 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.loop_align)] = .{
+         .llvm_name = "loop-align",
+-        .description = "Prefer 32-bit alignment for loops",
++        .description = "Prefer 32-bit alignment for branch targets",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.m55)] = .{
++        .llvm_name = "m55",
++        .description = "Cortex-M55 ARM processors",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.m85)] = .{
++        .llvm_name = "m85",
++        .description = "Cortex-M85 ARM processors",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.mclass)] = .{
+@@ -1524,6 +1563,22 @@ pub const all_features = blk: {
+             .virtualization,
+         }),
+     };
++    result[@intFromEnum(Feature.v9_6a)] = .{
++        .llvm_name = "armv9.6-a",
++        .description = "ARMv96a architecture",
++        .dependencies = featureSet(&[_]Feature{
++            .aclass,
++            .crc,
++            .db,
++            .dsp,
++            .fp_armv8,
++            .has_v9_6a,
++            .mp,
++            .ras,
++            .trustzone,
++            .virtualization,
++        }),
++    };
+     result[@intFromEnum(Feature.v9a)] = .{
+         .llvm_name = "armv9-a",
+         .description = "ARMv9a architecture",
+@@ -1950,6 +2005,16 @@ pub const cpu = struct {
+             .vmlx_forwarding,
+         }),
+     };
++    pub const cortex_a510: CpuModel = .{
++        .name = "cortex_a510",
++        .llvm_name = "cortex-a510",
++        .features = featureSet(&[_]Feature{
++            .bf16,
++            .fp16fml,
++            .i8mm,
++            .v9a,
++        }),
++    };
+     pub const cortex_a53: CpuModel = .{
+         .name = "cortex_a53",
+         .llvm_name = "cortex-a53",
+@@ -2162,6 +2227,7 @@ pub const cpu = struct {
+         .name = "cortex_m33",
+         .llvm_name = "cortex-m33",
+         .features = featureSet(&[_]Feature{
++            .avoid_muls,
+             .fix_cmse_cve_2021_35465,
+             .loop_align,
+             .no_branch_predictor,
+@@ -2218,6 +2284,7 @@ pub const cpu = struct {
+             .dsp,
+             .fix_cmse_cve_2021_35465,
+             .loop_align,
++            .m55,
+             .no_branch_predictor,
+             .slowfpvmlx,
+             .use_misched,
+@@ -2228,6 +2295,7 @@ pub const cpu = struct {
+         .name = "cortex_m7",
+         .llvm_name = "cortex-m7",
+         .features = featureSet(&[_]Feature{
++            .branch_align_64,
+             .use_mipipeliner,
+             .use_misched,
+             .v7em,
+@@ -2237,7 +2305,9 @@ pub const cpu = struct {
+         .name = "cortex_m85",
+         .llvm_name = "cortex-m85",
+         .features = featureSet(&[_]Feature{
++            .branch_align_64,
+             .dsp,
++            .m85,
+             .use_misched,
+             .v8_1m_main,
+         }),
+@@ -2572,6 +2642,21 @@ pub const cpu = struct {
+             .v7m,
+         }),
+     };
++    pub const star_mc1: CpuModel = .{
++        .name = "star_mc1",
++        .llvm_name = "star-mc1",
++        .features = featureSet(&[_]Feature{
++            .dsp,
++            .fix_cmse_cve_2021_35465,
++            .fp_armv8d16sp,
++            .loop_align,
++            .no_branch_predictor,
++            .slowfpvfmx,
++            .slowfpvmlx,
++            .use_misched,
++            .v8m_main,
++        }),
++    };
+     pub const strongarm: CpuModel = .{
+         .name = "strongarm",
+         .llvm_name = "strongarm",
+diff --git a/lib/std/Target/avr.zig b/lib/std/Target/avr.zig
+index 247adc1687..fe05e2f140 100644
+--- a/lib/std/Target/avr.zig
++++ b/lib/std/Target/avr.zig
+@@ -38,6 +38,7 @@ pub const Feature = enum {
+     spmx,
+     sram,
+     tinyencoding,
++    wrappingrjmp,
+     xmega,
+     xmega3,
+     xmegau,
+@@ -289,6 +290,11 @@ pub const all_features = blk: {
+         .description = "The device has Tiny core specific instruction encodings",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.wrappingrjmp)] = .{
++        .llvm_name = "wrappingrjmp",
++        .description = "The device potentially requires emitting rjmp that wraps across the flash boundary",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.xmega)] = .{
+         .llvm_name = "xmega",
+         .description = "The device is a part of the xmega family",
+@@ -381,6 +387,7 @@ pub const cpu = struct {
+         .llvm_name = "at90c8534",
+         .features = featureSet(&[_]Feature{
+             .avr2,
++            .wrappingrjmp,
+         }),
+     };
+     pub const at90can128: CpuModel = .{
+@@ -536,6 +543,7 @@ pub const cpu = struct {
+         .llvm_name = "at90s8515",
+         .features = featureSet(&[_]Feature{
+             .avr2,
++            .wrappingrjmp,
+         }),
+     };
+     pub const at90s8535: CpuModel = .{
+@@ -543,6 +551,7 @@ pub const cpu = struct {
+         .llvm_name = "at90s8535",
+         .features = featureSet(&[_]Feature{
+             .avr2,
++            .wrappingrjmp,
+         }),
+     };
+     pub const at90scr100: CpuModel = .{
+@@ -609,6 +618,7 @@ pub const cpu = struct {
+         .llvm_name = "ata5272",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const ata5505: CpuModel = .{
+@@ -672,6 +682,7 @@ pub const cpu = struct {
+         .llvm_name = "ata6285",
+         .features = featureSet(&[_]Feature{
+             .avr4,
++            .wrappingrjmp,
+         }),
+     };
+     pub const ata6286: CpuModel = .{
+@@ -714,6 +725,7 @@ pub const cpu = struct {
+         .llvm_name = "ata6616c",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const ata6617c: CpuModel = .{
+@@ -1545,6 +1557,7 @@ pub const cpu = struct {
+             .movw,
+             .mul,
+             .spm,
++            .wrappingrjmp,
+         }),
+     };
+     pub const atmega808: CpuModel = .{
+@@ -1570,6 +1583,7 @@ pub const cpu = struct {
+             .movw,
+             .mul,
+             .spm,
++            .wrappingrjmp,
+         }),
+     };
+     pub const atmega8535: CpuModel = .{
+@@ -1581,6 +1595,7 @@ pub const cpu = struct {
+             .movw,
+             .mul,
+             .spm,
++            .wrappingrjmp,
+         }),
+     };
+     pub const atmega88: CpuModel = .{
+@@ -1627,6 +1642,7 @@ pub const cpu = struct {
+             .movw,
+             .mul,
+             .spm,
++            .wrappingrjmp,
+         }),
+     };
+     pub const atmega8hva: CpuModel = .{
+@@ -2091,6 +2107,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny828",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny84: CpuModel = .{
+@@ -2098,6 +2115,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny84",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny841: CpuModel = .{
+@@ -2105,6 +2123,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny841",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny84a: CpuModel = .{
+@@ -2112,6 +2131,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny84a",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny85: CpuModel = .{
+@@ -2119,6 +2139,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny85",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny861: CpuModel = .{
+@@ -2126,6 +2147,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny861",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny861a: CpuModel = .{
+@@ -2133,6 +2155,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny861a",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny87: CpuModel = .{
+@@ -2140,6 +2163,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny87",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny88: CpuModel = .{
+@@ -2147,6 +2171,7 @@ pub const cpu = struct {
+         .llvm_name = "attiny88",
+         .features = featureSet(&[_]Feature{
+             .avr25,
++            .wrappingrjmp,
+         }),
+     };
+     pub const attiny9: CpuModel = .{
+diff --git a/lib/std/Target/csky.zig b/lib/std/Target/csky.zig
+index ff03bf7f7d..74cef9e595 100644
+--- a/lib/std/Target/csky.zig
++++ b/lib/std/Target/csky.zig
+@@ -214,7 +214,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.dsp_silan)] = .{
+         .llvm_name = "dsp_silan",
+-        .description = "Enable DSP Silan instrutions",
++        .description = "Enable DSP Silan instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.dspe60)] = .{
+@@ -224,7 +224,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.dspv2)] = .{
+         .llvm_name = "dspv2",
+-        .description = "Enable DSP V2.0 instrutions",
++        .description = "Enable DSP V2.0 instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.e1)] = .{
+@@ -243,7 +243,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.edsp)] = .{
+         .llvm_name = "edsp",
+-        .description = "Enable DSP instrutions",
++        .description = "Enable DSP instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.elrw)] = .{
+@@ -333,12 +333,12 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.hwdiv)] = .{
+         .llvm_name = "hwdiv",
+-        .description = "Enable divide instrutions",
++        .description = "Enable divide instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.istack)] = .{
+         .llvm_name = "istack",
+-        .description = "Enable interrput attribute",
++        .description = "Enable interrupt attribute",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.java)] = .{
+@@ -362,7 +362,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.multiple_stld)] = .{
+         .llvm_name = "multiple_stld",
+-        .description = "Enable multiple load/store instrutions",
++        .description = "Enable multiple load/store instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.nvic)] = .{
+@@ -372,7 +372,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.pushpop)] = .{
+         .llvm_name = "pushpop",
+-        .description = "Enable push/pop instrutions",
++        .description = "Enable push/pop instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.smart)] = .{
+diff --git a/lib/std/Target/hexagon.zig b/lib/std/Target/hexagon.zig
+index 983086bc18..a2185b2f5f 100644
+--- a/lib/std/Target/hexagon.zig
++++ b/lib/std/Target/hexagon.zig
+@@ -23,6 +23,8 @@ pub const Feature = enum {
+     hvxv69,
+     hvxv71,
+     hvxv73,
++    hvxv75,
++    hvxv79,
+     long_calls,
+     mem_noshuf,
+     memops,
+@@ -46,6 +48,8 @@ pub const Feature = enum {
+     v69,
+     v71,
+     v73,
++    v75,
++    v79,
+     zreg,
+ };
+ 
+@@ -171,6 +175,20 @@ pub const all_features = blk: {
+             .hvxv71,
+         }),
+     };
++    result[@intFromEnum(Feature.hvxv75)] = .{
++        .llvm_name = "hvxv75",
++        .description = "Hexagon HVX instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .hvxv73,
++        }),
++    };
++    result[@intFromEnum(Feature.hvxv79)] = .{
++        .llvm_name = "hvxv79",
++        .description = "Hexagon HVX instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .hvxv75,
++        }),
++    };
+     result[@intFromEnum(Feature.long_calls)] = .{
+         .llvm_name = "long-calls",
+         .description = "Use constant-extended calls",
+@@ -290,6 +308,16 @@ pub const all_features = blk: {
+         .description = "Enable Hexagon V73 architecture",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.v75)] = .{
++        .llvm_name = "v75",
++        .description = "Enable Hexagon V75 architecture",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.v79)] = .{
++        .llvm_name = "v79",
++        .description = "Enable Hexagon V79 architecture",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.zreg)] = .{
+         .llvm_name = "zreg",
+         .description = "Hexagon ZReg extension instructions",
+@@ -583,4 +611,55 @@ pub const cpu = struct {
+             .v73,
+         }),
+     };
++    pub const hexagonv75: CpuModel = .{
++        .name = "hexagonv75",
++        .llvm_name = "hexagonv75",
++        .features = featureSet(&[_]Feature{
++            .compound,
++            .duplex,
++            .mem_noshuf,
++            .memops,
++            .nvj,
++            .nvs,
++            .small_data,
++            .v5,
++            .v55,
++            .v60,
++            .v62,
++            .v65,
++            .v66,
++            .v67,
++            .v68,
++            .v69,
++            .v71,
++            .v73,
++            .v75,
++        }),
++    };
++    pub const hexagonv79: CpuModel = .{
++        .name = "hexagonv79",
++        .llvm_name = "hexagonv79",
++        .features = featureSet(&[_]Feature{
++            .compound,
++            .duplex,
++            .mem_noshuf,
++            .memops,
++            .nvj,
++            .nvs,
++            .small_data,
++            .v5,
++            .v55,
++            .v60,
++            .v62,
++            .v65,
++            .v66,
++            .v67,
++            .v68,
++            .v69,
++            .v71,
++            .v73,
++            .v75,
++            .v79,
++        }),
++    };
+ };
+diff --git a/lib/std/Target/loongarch.zig b/lib/std/Target/loongarch.zig
+index 04a4b60fdf..e70d5a7d03 100644
+--- a/lib/std/Target/loongarch.zig
++++ b/lib/std/Target/loongarch.zig
+@@ -8,17 +8,22 @@ pub const Feature = enum {
+     @"32bit",
+     @"64bit",
+     d,
++    div32,
+     f,
+     frecipe,
+     la_global_with_abs,
+     la_global_with_pcrel,
+     la_local_with_abs,
++    lam_bh,
++    lamcas,
+     lasx,
+     lbt,
++    ld_seq_sa,
+     lsx,
+     lvz,
+     prefer_w_inst,
+     relax,
++    scq,
+     ual,
+ };
+ 
+@@ -48,6 +53,11 @@ pub const all_features = blk: {
+             .f,
+         }),
+     };
++    result[@intFromEnum(Feature.div32)] = .{
++        .llvm_name = "div32",
++        .description = "Assume div.w[u] and mod.w[u] can handle inputs that are not sign-extended",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.f)] = .{
+         .llvm_name = "f",
+         .description = "'F' (Single-Precision Floating-Point)",
+@@ -73,6 +83,16 @@ pub const all_features = blk: {
+         .description = "Expand la.local as la.abs",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.lam_bh)] = .{
++        .llvm_name = "lam-bh",
++        .description = "Support amswap[_db].{b/h} and amadd[_db].{b/h} instructions.",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.lamcas)] = .{
++        .llvm_name = "lamcas",
++        .description = "Support amcas[_db].{b/h/w/d}.",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.lasx)] = .{
+         .llvm_name = "lasx",
+         .description = "'LASX' (Loongson Advanced SIMD Extension)",
+@@ -85,6 +105,11 @@ pub const all_features = blk: {
+         .description = "'LBT' (Loongson Binary Translation Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.ld_seq_sa)] = .{
++        .llvm_name = "ld-seq-sa",
++        .description = "Don't use load-load barrier (dbar 0x700).",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.lsx)] = .{
+         .llvm_name = "lsx",
+         .description = "'LSX' (Loongson SIMD Extension)",
+@@ -107,6 +132,11 @@ pub const all_features = blk: {
+         .description = "Enable Linker relaxation",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.scq)] = .{
++        .llvm_name = "scq",
++        .description = "Support sc.q instruction",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.ual)] = .{
+         .llvm_name = "ual",
+         .description = "Allow memory accesses to be unaligned",
+@@ -138,6 +168,7 @@ pub const cpu = struct {
+         .llvm_name = "generic-la64",
+         .features = featureSet(&[_]Feature{
+             .@"64bit",
++            .lsx,
+             .ual,
+         }),
+     };
+@@ -157,10 +188,15 @@ pub const cpu = struct {
+         .llvm_name = "la664",
+         .features = featureSet(&[_]Feature{
+             .@"64bit",
++            .div32,
+             .frecipe,
++            .lam_bh,
++            .lamcas,
+             .lasx,
+             .lbt,
++            .ld_seq_sa,
+             .lvz,
++            .scq,
+             .ual,
+         }),
+     };
+diff --git a/lib/std/Target/nvptx.zig b/lib/std/Target/nvptx.zig
+index 0eced29fd6..996451dfc7 100644
+--- a/lib/std/Target/nvptx.zig
++++ b/lib/std/Target/nvptx.zig
+@@ -32,6 +32,14 @@ pub const Feature = enum {
+     ptx83,
+     ptx84,
+     ptx85,
++    ptx86,
++    ptx87,
++    sm_100,
++    sm_100a,
++    sm_101,
++    sm_101a,
++    sm_120,
++    sm_120a,
+     sm_20,
+     sm_21,
+     sm_30,
+@@ -199,6 +207,46 @@ pub const all_features = blk: {
+         .description = "Use PTX version 85",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.ptx86)] = .{
++        .llvm_name = "ptx86",
++        .description = "Use PTX version 86",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.ptx87)] = .{
++        .llvm_name = "ptx87",
++        .description = "Use PTX version 87",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sm_100)] = .{
++        .llvm_name = "sm_100",
++        .description = "Target SM 100",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sm_100a)] = .{
++        .llvm_name = "sm_100a",
++        .description = "Target SM 100a",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sm_101)] = .{
++        .llvm_name = "sm_101",
++        .description = "Target SM 101",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sm_101a)] = .{
++        .llvm_name = "sm_101a",
++        .description = "Target SM 101a",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sm_120)] = .{
++        .llvm_name = "sm_120",
++        .description = "Target SM 120",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sm_120a)] = .{
++        .llvm_name = "sm_120a",
++        .description = "Target SM 120a",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.sm_20)] = .{
+         .llvm_name = "sm_20",
+         .description = "Target SM 20",
+@@ -313,6 +361,54 @@ pub const all_features = blk: {
+ };
+ 
+ pub const cpu = struct {
++    pub const sm_100: CpuModel = .{
++        .name = "sm_100",
++        .llvm_name = "sm_100",
++        .features = featureSet(&[_]Feature{
++            .ptx86,
++            .sm_100,
++        }),
++    };
++    pub const sm_100a: CpuModel = .{
++        .name = "sm_100a",
++        .llvm_name = "sm_100a",
++        .features = featureSet(&[_]Feature{
++            .ptx86,
++            .sm_100a,
++        }),
++    };
++    pub const sm_101: CpuModel = .{
++        .name = "sm_101",
++        .llvm_name = "sm_101",
++        .features = featureSet(&[_]Feature{
++            .ptx86,
++            .sm_101,
++        }),
++    };
++    pub const sm_101a: CpuModel = .{
++        .name = "sm_101a",
++        .llvm_name = "sm_101a",
++        .features = featureSet(&[_]Feature{
++            .ptx86,
++            .sm_101a,
++        }),
++    };
++    pub const sm_120: CpuModel = .{
++        .name = "sm_120",
++        .llvm_name = "sm_120",
++        .features = featureSet(&[_]Feature{
++            .ptx87,
++            .sm_120,
++        }),
++    };
++    pub const sm_120a: CpuModel = .{
++        .name = "sm_120a",
++        .llvm_name = "sm_120a",
++        .features = featureSet(&[_]Feature{
++            .ptx87,
++            .sm_120a,
++        }),
++    };
+     pub const sm_20: CpuModel = .{
+         .name = "sm_20",
+         .llvm_name = "sm_20",
+diff --git a/lib/std/Target/riscv.zig b/lib/std/Target/riscv.zig
+index 7a08d3d268..5263c72eff 100644
+--- a/lib/std/Target/riscv.zig
++++ b/lib/std/Target/riscv.zig
+@@ -13,36 +13,50 @@ pub const Feature = enum {
+     c,
+     conditional_cmv_fusion,
+     d,
++    disable_latency_sched_heuristic,
+     dlen_factor_2,
+     e,
+     experimental,
+-    experimental_rva23s64,
+-    experimental_rva23u64,
+-    experimental_rvb23s64,
+-    experimental_rvb23u64,
+     experimental_rvm23u32,
+-    experimental_smmpm,
+-    experimental_smnpm,
+-    experimental_ssnpm,
+-    experimental_sspm,
+-    experimental_ssqosid,
+-    experimental_supm,
+-    experimental_zacas,
++    experimental_sdext,
++    experimental_sdtrig,
++    experimental_smctr,
++    experimental_ssctr,
++    experimental_svukte,
++    experimental_xqcia,
++    experimental_xqciac,
++    experimental_xqcicli,
++    experimental_xqcicm,
++    experimental_xqcics,
++    experimental_xqcicsr,
++    experimental_xqciint,
++    experimental_xqcilo,
++    experimental_xqcilsm,
++    experimental_xqcisls,
+     experimental_zalasr,
+     experimental_zicfilp,
+     experimental_zicfiss,
++    experimental_zvbc32e,
++    experimental_zvkgs,
+     f,
+     forced_atomics,
+-    forced_sw_shadow_stack,
+     h,
+     i,
+     ld_add_fusion,
+     lui_addi_fusion,
+     m,
++    mips_p8700,
+     no_default_unroll,
+     no_rvc_hints,
+     no_sink_splat_operands,
+     no_trailing_seq_cst_fence,
++    optimized_nf2_segment_load_store,
++    optimized_nf3_segment_load_store,
++    optimized_nf4_segment_load_store,
++    optimized_nf5_segment_load_store,
++    optimized_nf6_segment_load_store,
++    optimized_nf7_segment_load_store,
++    optimized_nf8_segment_load_store,
+     optimized_zero_stride_load,
+     predictable_select_expensive,
+     prefer_w_inst,
+@@ -82,9 +96,14 @@ pub const Feature = enum {
+     rva20u64,
+     rva22s64,
+     rva22u64,
++    rva23s64,
++    rva23u64,
++    rvb23s64,
++    rvb23u64,
+     rvi20u32,
+     rvi20u64,
+     save_restore,
++    sha,
+     shcounterenw,
+     shgatpa,
+     shifted_zextw_fusion,
+@@ -96,7 +115,11 @@ pub const Feature = enum {
+     smaia,
+     smcdeleg,
+     smcsrind,
++    smdbltrp,
+     smepmp,
++    smmpm,
++    smnpm,
++    smrnmi,
+     smstateen,
+     ssaia,
+     ssccfg,
+@@ -104,24 +127,31 @@ pub const Feature = enum {
+     sscofpmf,
+     sscounterenw,
+     sscsrind,
++    ssdbltrp,
++    ssnpm,
++    sspm,
++    ssqosid,
+     ssstateen,
+     ssstrict,
+     sstc,
+     sstvala,
+     sstvecd,
+     ssu64xl,
++    supm,
+     svade,
+     svadu,
+     svbare,
+     svinval,
+     svnapot,
+     svpbmt,
++    svvptc,
+     tagged_globals,
+     unaligned_scalar_mem,
+     unaligned_vector_mem,
+     use_postra_scheduler,
+     v,
+     ventana_veyron,
++    vxrm_pipeline_flush,
+     xcvalu,
+     xcvbi,
+     xcvbitmanip,
+@@ -129,6 +159,8 @@ pub const Feature = enum {
+     xcvmac,
+     xcvmem,
+     xcvsimd,
++    xmipscmove,
++    xmipslsp,
+     xsfcease,
+     xsfvcp,
+     xsfvfnrclipxfqf,
+@@ -154,6 +186,7 @@ pub const Feature = enum {
+     za64rs,
+     zaamo,
+     zabha,
++    zacas,
+     zalrsc,
+     zama16b,
+     zawrs,
+@@ -272,7 +305,10 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.a)] = .{
+         .llvm_name = "a",
+         .description = "'A' (Atomic Instructions)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zaamo,
++            .zalrsc,
++        }),
+     };
+     result[@intFromEnum(Feature.auipc_addi_fusion)] = .{
+         .llvm_name = "auipc-addi-fusion",
+@@ -305,6 +341,11 @@ pub const all_features = blk: {
+             .f,
+         }),
+     };
++    result[@intFromEnum(Feature.disable_latency_sched_heuristic)] = .{
++        .llvm_name = "disable-latency-sched-heuristic",
++        .description = "Disable latency scheduling heuristic",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.dlen_factor_2)] = .{
+         .llvm_name = "dlen-factor-2",
+         .description = "Vector unit DLEN(data path width) is half of VLEN",
+@@ -312,7 +353,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.e)] = .{
+         .llvm_name = "e",
+-        .description = "Implements RV{32,64}E (provides 16 rather than 32 GPRs)",
++        .description = "'E' (Embedded Instruction Set with 16 GPRs)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.experimental)] = .{
+@@ -320,241 +361,108 @@ pub const all_features = blk: {
+         .description = "Experimental intrinsics",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_rva23s64)] = .{
+-        .llvm_name = "experimental-rva23s64",
+-        .description = "RISC-V experimental-rva23s64 profile",
++    result[@intFromEnum(Feature.experimental_rvm23u32)] = .{
++        .llvm_name = "experimental-rvm23u32",
++        .description = "RISC-V experimental-rvm23u32 profile",
+         .dependencies = featureSet(&[_]Feature{
+-            .@"64bit",
+-            .a,
+-            .c,
+-            .experimental_ssnpm,
+-            .h,
++            .@"32bit",
++            .b,
+             .i,
+             .m,
+-            .shcounterenw,
+-            .shgatpa,
+-            .shtvala,
+-            .shvsatpa,
+-            .shvstvala,
+-            .shvstvecd,
+-            .ssccptr,
+-            .sscofpmf,
+-            .sscounterenw,
+-            .ssstateen,
+-            .sstc,
+-            .sstvala,
+-            .sstvecd,
+-            .ssu64xl,
+-            .svade,
+-            .svbare,
+-            .svinval,
+-            .svnapot,
+-            .svpbmt,
+-            .v,
+-            .za64rs,
+-            .zawrs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+-            .zcb,
++            .zce,
+             .zcmop,
+-            .zfa,
+-            .zfhmin,
+-            .zic64b,
+-            .zicbom,
+             .zicbop,
+-            .zicboz,
+-            .ziccamoa,
+-            .ziccif,
+-            .zicclsm,
+-            .ziccrse,
+-            .zicntr,
+             .zicond,
+-            .zifencei,
+             .zihintntl,
+             .zihintpause,
+-            .zihpm,
+             .zimop,
+-            .zkt,
+-            .zvbb,
+-            .zvfhmin,
+-            .zvkt,
+         }),
+     };
+-    result[@intFromEnum(Feature.experimental_rva23u64)] = .{
+-        .llvm_name = "experimental-rva23u64",
+-        .description = "RISC-V experimental-rva23u64 profile",
+-        .dependencies = featureSet(&[_]Feature{
+-            .@"64bit",
+-            .a,
+-            .c,
+-            .i,
+-            .m,
+-            .v,
+-            .za64rs,
+-            .zawrs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+-            .zcb,
+-            .zcmop,
+-            .zfa,
+-            .zfhmin,
+-            .zic64b,
+-            .zicbom,
+-            .zicbop,
+-            .zicboz,
+-            .ziccamoa,
+-            .ziccif,
+-            .zicclsm,
+-            .ziccrse,
+-            .zicntr,
+-            .zicond,
+-            .zihintntl,
+-            .zihintpause,
+-            .zihpm,
+-            .zimop,
+-            .zkt,
+-            .zvbb,
+-            .zvfhmin,
+-            .zvkt,
+-        }),
++    result[@intFromEnum(Feature.experimental_sdext)] = .{
++        .llvm_name = "experimental-sdext",
++        .description = "'Sdext' (External debugger)",
++        .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_rvb23s64)] = .{
+-        .llvm_name = "experimental-rvb23s64",
+-        .description = "RISC-V experimental-rvb23s64 profile",
+-        .dependencies = featureSet(&[_]Feature{
+-            .@"64bit",
+-            .a,
+-            .c,
+-            .d,
+-            .i,
+-            .m,
+-            .ssccptr,
+-            .sscofpmf,
+-            .sscounterenw,
+-            .sstc,
+-            .sstvala,
+-            .sstvecd,
+-            .ssu64xl,
+-            .svade,
+-            .svbare,
+-            .svinval,
+-            .svnapot,
+-            .svpbmt,
+-            .za64rs,
+-            .zawrs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+-            .zcb,
+-            .zcmop,
+-            .zfa,
+-            .zic64b,
+-            .zicbom,
+-            .zicbop,
+-            .zicboz,
+-            .ziccamoa,
+-            .ziccif,
+-            .zicclsm,
+-            .ziccrse,
+-            .zicntr,
+-            .zicond,
+-            .zifencei,
+-            .zihintntl,
+-            .zihintpause,
+-            .zihpm,
+-            .zimop,
+-            .zkt,
+-        }),
++    result[@intFromEnum(Feature.experimental_sdtrig)] = .{
++        .llvm_name = "experimental-sdtrig",
++        .description = "'Sdtrig' (Debugger triggers)",
++        .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_rvb23u64)] = .{
+-        .llvm_name = "experimental-rvb23u64",
+-        .description = "RISC-V experimental-rvb23u64 profile",
++    result[@intFromEnum(Feature.experimental_smctr)] = .{
++        .llvm_name = "experimental-smctr",
++        .description = "'Smctr' (Control Transfer Records Machine Level)",
+         .dependencies = featureSet(&[_]Feature{
+-            .@"64bit",
+-            .a,
+-            .c,
+-            .d,
+-            .i,
+-            .m,
+-            .za64rs,
+-            .zawrs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+-            .zcb,
+-            .zcmop,
+-            .zfa,
+-            .zic64b,
+-            .zicbom,
+-            .zicbop,
+-            .zicboz,
+-            .ziccamoa,
+-            .ziccif,
+-            .zicclsm,
+-            .ziccrse,
+-            .zicntr,
+-            .zicond,
+-            .zihintntl,
+-            .zihintpause,
+-            .zihpm,
+-            .zimop,
+-            .zkt,
++            .sscsrind,
+         }),
+     };
+-    result[@intFromEnum(Feature.experimental_rvm23u32)] = .{
+-        .llvm_name = "experimental-rvm23u32",
+-        .description = "RISC-V experimental-rvm23u32 profile",
++    result[@intFromEnum(Feature.experimental_ssctr)] = .{
++        .llvm_name = "experimental-ssctr",
++        .description = "'Ssctr' (Control Transfer Records Supervisor Level)",
+         .dependencies = featureSet(&[_]Feature{
+-            .@"32bit",
+-            .i,
+-            .m,
+-            .zba,
+-            .zbb,
+-            .zbs,
+-            .zce,
+-            .zcmop,
+-            .zicbop,
+-            .zicond,
+-            .zihintntl,
+-            .zihintpause,
+-            .zimop,
++            .sscsrind,
+         }),
+     };
+-    result[@intFromEnum(Feature.experimental_smmpm)] = .{
+-        .llvm_name = "experimental-smmpm",
+-        .description = "'Smmpm' (Machine-level Pointer Masking for M-mode)",
++    result[@intFromEnum(Feature.experimental_svukte)] = .{
++        .llvm_name = "experimental-svukte",
++        .description = "'Svukte' (Address-Independent Latency of User-Mode Faults to Supervisor Addresses)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_smnpm)] = .{
+-        .llvm_name = "experimental-smnpm",
+-        .description = "'Smnpm' (Machine-level Pointer Masking for next lower privilege mode)",
++    result[@intFromEnum(Feature.experimental_xqcia)] = .{
++        .llvm_name = "experimental-xqcia",
++        .description = "'Xqcia' (Qualcomm uC Arithmetic Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_ssnpm)] = .{
+-        .llvm_name = "experimental-ssnpm",
+-        .description = "'Ssnpm' (Supervisor-level Pointer Masking for next lower privilege mode)",
++    result[@intFromEnum(Feature.experimental_xqciac)] = .{
++        .llvm_name = "experimental-xqciac",
++        .description = "'Xqciac' (Qualcomm uC Load-Store Address Calculation Extension)",
++        .dependencies = featureSet(&[_]Feature{
++            .zca,
++        }),
++    };
++    result[@intFromEnum(Feature.experimental_xqcicli)] = .{
++        .llvm_name = "experimental-xqcicli",
++        .description = "'Xqcicli' (Qualcomm uC Conditional Load Immediate Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_sspm)] = .{
+-        .llvm_name = "experimental-sspm",
+-        .description = "'Sspm' (Indicates Supervisor-mode Pointer Masking)",
++    result[@intFromEnum(Feature.experimental_xqcicm)] = .{
++        .llvm_name = "experimental-xqcicm",
++        .description = "'Xqcicm' (Qualcomm uC Conditional Move Extension)",
++        .dependencies = featureSet(&[_]Feature{
++            .zca,
++        }),
++    };
++    result[@intFromEnum(Feature.experimental_xqcics)] = .{
++        .llvm_name = "experimental-xqcics",
++        .description = "'Xqcics' (Qualcomm uC Conditional Select Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_ssqosid)] = .{
+-        .llvm_name = "experimental-ssqosid",
+-        .description = "'Ssqosid' (Quality-of-Service (QoS) Identifiers)",
++    result[@intFromEnum(Feature.experimental_xqcicsr)] = .{
++        .llvm_name = "experimental-xqcicsr",
++        .description = "'Xqcicsr' (Qualcomm uC CSR Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_supm)] = .{
+-        .llvm_name = "experimental-supm",
+-        .description = "'Supm' (Indicates User-mode Pointer Masking)",
++    result[@intFromEnum(Feature.experimental_xqciint)] = .{
++        .llvm_name = "experimental-xqciint",
++        .description = "'Xqciint' (Qualcomm uC Interrupts Extension)",
++        .dependencies = featureSet(&[_]Feature{
++            .zca,
++        }),
++    };
++    result[@intFromEnum(Feature.experimental_xqcilo)] = .{
++        .llvm_name = "experimental-xqcilo",
++        .description = "'Xqcilo' (Qualcomm uC Large Offset Load Store Extension)",
++        .dependencies = featureSet(&[_]Feature{
++            .zca,
++        }),
++    };
++    result[@intFromEnum(Feature.experimental_xqcilsm)] = .{
++        .llvm_name = "experimental-xqcilsm",
++        .description = "'Xqcilsm' (Qualcomm uC Load Store Multiple Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.experimental_zacas)] = .{
+-        .llvm_name = "experimental-zacas",
+-        .description = "'Zacas' (Atomic Compare-And-Swap Instructions)",
++    result[@intFromEnum(Feature.experimental_xqcisls)] = .{
++        .llvm_name = "experimental-xqcisls",
++        .description = "'Xqcisls' (Qualcomm uC Scaled Load Store Extension)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.experimental_zalasr)] = .{
+@@ -577,6 +485,20 @@ pub const all_features = blk: {
+             .zimop,
+         }),
+     };
++    result[@intFromEnum(Feature.experimental_zvbc32e)] = .{
++        .llvm_name = "experimental-zvbc32e",
++        .description = "'Zvbc32e' (Vector Carryless Multiplication with 32-bits elements)",
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
++    };
++    result[@intFromEnum(Feature.experimental_zvkgs)] = .{
++        .llvm_name = "experimental-zvkgs",
++        .description = "'Zvkgs' (Vector-Scalar GCM instructions for Cryptography)",
++        .dependencies = featureSet(&[_]Feature{
++            .zvkg,
++        }),
++    };
+     result[@intFromEnum(Feature.f)] = .{
+         .llvm_name = "f",
+         .description = "'F' (Single-Precision Floating-Point)",
+@@ -589,11 +511,6 @@ pub const all_features = blk: {
+         .description = "Assume that lock-free native-width atomics are available",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.forced_sw_shadow_stack)] = .{
+-        .llvm_name = "forced-sw-shadow-stack",
+-        .description = "Implement shadow stack with software.",
+-        .dependencies = featureSet(&[_]Feature{}),
+-    };
+     result[@intFromEnum(Feature.h)] = .{
+         .llvm_name = "h",
+         .description = "'H' (Hypervisor)",
+@@ -621,6 +538,11 @@ pub const all_features = blk: {
+             .zmmul,
+         }),
+     };
++    result[@intFromEnum(Feature.mips_p8700)] = .{
++        .llvm_name = "mips-p8700",
++        .description = "MIPS p8700 processor",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.no_default_unroll)] = .{
+         .llvm_name = "no-default-unroll",
+         .description = "Disable default unroll preference.",
+@@ -641,6 +563,41 @@ pub const all_features = blk: {
+         .description = "Disable trailing fence for seq-cst store.",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.optimized_nf2_segment_load_store)] = .{
++        .llvm_name = "optimized-nf2-segment-load-store",
++        .description = "vlseg2eN.v and vsseg2eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.optimized_nf3_segment_load_store)] = .{
++        .llvm_name = "optimized-nf3-segment-load-store",
++        .description = "vlseg3eN.v and vsseg3eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.optimized_nf4_segment_load_store)] = .{
++        .llvm_name = "optimized-nf4-segment-load-store",
++        .description = "vlseg4eN.v and vsseg4eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.optimized_nf5_segment_load_store)] = .{
++        .llvm_name = "optimized-nf5-segment-load-store",
++        .description = "vlseg5eN.v and vsseg5eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.optimized_nf6_segment_load_store)] = .{
++        .llvm_name = "optimized-nf6-segment-load-store",
++        .description = "vlseg6eN.v and vsseg6eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.optimized_nf7_segment_load_store)] = .{
++        .llvm_name = "optimized-nf7-segment-load-store",
++        .description = "vlseg7eN.v and vsseg7eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.optimized_nf8_segment_load_store)] = .{
++        .llvm_name = "optimized-nf8-segment-load-store",
++        .description = "vlseg8eN.v and vsseg8eN.v areimplemented as a wide memory op and shuffle",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.optimized_zero_stride_load)] = .{
+         .llvm_name = "optimized-zero-stride-load",
+         .description = "Optimized (perform fewer memory operations)zero-stride vector load",
+@@ -864,6 +821,7 @@ pub const all_features = blk: {
+         .dependencies = featureSet(&[_]Feature{
+             .@"64bit",
+             .a,
++            .b,
+             .c,
+             .d,
+             .i,
+@@ -877,9 +835,6 @@ pub const all_features = blk: {
+             .svinval,
+             .svpbmt,
+             .za64rs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+             .zfhmin,
+             .zic64b,
+             .zicbom,
+@@ -902,14 +857,12 @@ pub const all_features = blk: {
+         .dependencies = featureSet(&[_]Feature{
+             .@"64bit",
+             .a,
++            .b,
+             .c,
+             .d,
+             .i,
+             .m,
+             .za64rs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+             .zfhmin,
+             .zic64b,
+             .zicbom,
+@@ -925,6 +878,176 @@ pub const all_features = blk: {
+             .zkt,
+         }),
+     };
++    result[@intFromEnum(Feature.rva23s64)] = .{
++        .llvm_name = "rva23s64",
++        .description = "RISC-V rva23s64 profile",
++        .dependencies = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .b,
++            .c,
++            .i,
++            .m,
++            .sha,
++            .ssccptr,
++            .sscofpmf,
++            .sscounterenw,
++            .ssnpm,
++            .sstc,
++            .sstvala,
++            .sstvecd,
++            .ssu64xl,
++            .supm,
++            .svade,
++            .svbare,
++            .svinval,
++            .svnapot,
++            .svpbmt,
++            .v,
++            .za64rs,
++            .zawrs,
++            .zcb,
++            .zcmop,
++            .zfa,
++            .zfhmin,
++            .zic64b,
++            .zicbom,
++            .zicbop,
++            .zicboz,
++            .ziccamoa,
++            .ziccif,
++            .zicclsm,
++            .ziccrse,
++            .zicntr,
++            .zicond,
++            .zifencei,
++            .zihintntl,
++            .zihintpause,
++            .zihpm,
++            .zimop,
++            .zkt,
++            .zvbb,
++            .zvfhmin,
++            .zvkt,
++        }),
++    };
++    result[@intFromEnum(Feature.rva23u64)] = .{
++        .llvm_name = "rva23u64",
++        .description = "RISC-V rva23u64 profile",
++        .dependencies = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .b,
++            .c,
++            .i,
++            .m,
++            .supm,
++            .v,
++            .za64rs,
++            .zawrs,
++            .zcb,
++            .zcmop,
++            .zfa,
++            .zfhmin,
++            .zic64b,
++            .zicbom,
++            .zicbop,
++            .zicboz,
++            .ziccamoa,
++            .ziccif,
++            .zicclsm,
++            .ziccrse,
++            .zicntr,
++            .zicond,
++            .zihintntl,
++            .zihintpause,
++            .zihpm,
++            .zimop,
++            .zkt,
++            .zvbb,
++            .zvfhmin,
++            .zvkt,
++        }),
++    };
++    result[@intFromEnum(Feature.rvb23s64)] = .{
++        .llvm_name = "rvb23s64",
++        .description = "RISC-V rvb23s64 profile",
++        .dependencies = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .b,
++            .c,
++            .d,
++            .i,
++            .m,
++            .ssccptr,
++            .sscofpmf,
++            .sscounterenw,
++            .sstc,
++            .sstvala,
++            .sstvecd,
++            .ssu64xl,
++            .svade,
++            .svbare,
++            .svinval,
++            .svnapot,
++            .svpbmt,
++            .za64rs,
++            .zawrs,
++            .zcb,
++            .zcmop,
++            .zfa,
++            .zic64b,
++            .zicbom,
++            .zicbop,
++            .zicboz,
++            .ziccamoa,
++            .ziccif,
++            .zicclsm,
++            .ziccrse,
++            .zicntr,
++            .zicond,
++            .zifencei,
++            .zihintntl,
++            .zihintpause,
++            .zihpm,
++            .zimop,
++            .zkt,
++        }),
++    };
++    result[@intFromEnum(Feature.rvb23u64)] = .{
++        .llvm_name = "rvb23u64",
++        .description = "RISC-V rvb23u64 profile",
++        .dependencies = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .b,
++            .c,
++            .d,
++            .i,
++            .m,
++            .za64rs,
++            .zawrs,
++            .zcb,
++            .zcmop,
++            .zfa,
++            .zic64b,
++            .zicbom,
++            .zicbop,
++            .zicboz,
++            .ziccamoa,
++            .ziccif,
++            .zicclsm,
++            .ziccrse,
++            .zicntr,
++            .zicond,
++            .zihintntl,
++            .zihintpause,
++            .zihpm,
++            .zimop,
++            .zkt,
++        }),
++    };
+     result[@intFromEnum(Feature.rvi20u32)] = .{
+         .llvm_name = "rvi20u32",
+         .description = "RISC-V rvi20u32 profile",
+@@ -946,6 +1069,20 @@ pub const all_features = blk: {
+         .description = "Enable save/restore.",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.sha)] = .{
++        .llvm_name = "sha",
++        .description = "'Sha' (Augmented Hypervisor)",
++        .dependencies = featureSet(&[_]Feature{
++            .h,
++            .shcounterenw,
++            .shgatpa,
++            .shtvala,
++            .shvsatpa,
++            .shvstvala,
++            .shvstvecd,
++            .ssstateen,
++        }),
++    };
+     result[@intFromEnum(Feature.shcounterenw)] = .{
+         .llvm_name = "shcounterenw",
+         .description = "'Shcounterenw' (Support writeable hcounteren enable bit for any hpmcounter that is not read-only zero)",
+@@ -953,7 +1090,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.shgatpa)] = .{
+         .llvm_name = "shgatpa",
+-        .description = "'Sgatpa' (SvNNx4 mode supported for all modes supported by satp, as well as Bare)",
++        .description = "'Shgatpa' (SvNNx4 mode supported for all modes supported by satp, as well as Bare)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.shifted_zextw_fusion)] = .{
+@@ -973,7 +1110,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.shvsatpa)] = .{
+         .llvm_name = "shvsatpa",
+-        .description = "'Svsatpa' (vsatp supports all modes supported by satp)",
++        .description = "'Shvsatpa' (vsatp supports all modes supported by satp)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.shvstvala)] = .{
+@@ -1001,11 +1138,31 @@ pub const all_features = blk: {
+         .description = "'Smcsrind' (Indirect CSR Access Machine Level)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.smdbltrp)] = .{
++        .llvm_name = "smdbltrp",
++        .description = "'Smdbltrp' (Double Trap Machine Level)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.smepmp)] = .{
+         .llvm_name = "smepmp",
+         .description = "'Smepmp' (Enhanced Physical Memory Protection)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.smmpm)] = .{
++        .llvm_name = "smmpm",
++        .description = "'Smmpm' (Machine-level Pointer Masking for M-mode)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.smnpm)] = .{
++        .llvm_name = "smnpm",
++        .description = "'Smnpm' (Machine-level Pointer Masking for next lower privilege mode)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.smrnmi)] = .{
++        .llvm_name = "smrnmi",
++        .description = "'Smrnmi' (Resumable Non-Maskable Interrupts)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.smstateen)] = .{
+         .llvm_name = "smstateen",
+         .description = "'Smstateen' (Machine-mode view of the state-enable extension)",
+@@ -1041,6 +1198,26 @@ pub const all_features = blk: {
+         .description = "'Sscsrind' (Indirect CSR Access Supervisor Level)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.ssdbltrp)] = .{
++        .llvm_name = "ssdbltrp",
++        .description = "'Ssdbltrp' (Double Trap Supervisor Level)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.ssnpm)] = .{
++        .llvm_name = "ssnpm",
++        .description = "'Ssnpm' (Supervisor-level Pointer Masking for next lower privilege mode)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.sspm)] = .{
++        .llvm_name = "sspm",
++        .description = "'Sspm' (Indicates Supervisor-mode Pointer Masking)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.ssqosid)] = .{
++        .llvm_name = "ssqosid",
++        .description = "'Ssqosid' (Quality-of-Service (QoS) Identifiers)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.ssstateen)] = .{
+         .llvm_name = "ssstateen",
+         .description = "'Ssstateen' (Supervisor-mode view of the state-enable extension)",
+@@ -1071,6 +1248,11 @@ pub const all_features = blk: {
+         .description = "'Ssu64xl' (UXLEN=64 supported)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.supm)] = .{
++        .llvm_name = "supm",
++        .description = "'Supm' (Indicates User-mode Pointer Masking)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.svade)] = .{
+         .llvm_name = "svade",
+         .description = "'Svade' (Raise exceptions on improper A/D bits)",
+@@ -1083,7 +1265,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.svbare)] = .{
+         .llvm_name = "svbare",
+-        .description = "'Svbare' $(satp mode Bare supported)",
++        .description = "'Svbare' (satp mode Bare supported)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.svinval)] = .{
+@@ -1101,6 +1283,11 @@ pub const all_features = blk: {
+         .description = "'Svpbmt' (Page-Based Memory Types)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.svvptc)] = .{
++        .llvm_name = "svvptc",
++        .description = "'Svvptc' (Obviating Memory-Management Instructions after Marking PTEs Valid)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.tagged_globals)] = .{
+         .llvm_name = "tagged-globals",
+         .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
+@@ -1134,6 +1321,11 @@ pub const all_features = blk: {
+         .description = "Ventana Veyron-Series processors",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.vxrm_pipeline_flush)] = .{
++        .llvm_name = "vxrm-pipeline-flush",
++        .description = "VXRM writes causes pipeline flush",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.xcvalu)] = .{
+         .llvm_name = "xcvalu",
+         .description = "'XCValu' (CORE-V ALU Operations)",
+@@ -1169,6 +1361,16 @@ pub const all_features = blk: {
+         .description = "'XCVsimd' (CORE-V SIMD ALU)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.xmipscmove)] = .{
++        .llvm_name = "xmipscmove",
++        .description = "'XMIPSCMove' (MIPS conditional move instruction(s) (ccmov))",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.xmipslsp)] = .{
++        .llvm_name = "xmipslsp",
++        .description = "'XMIPSLSP' (MIPS optimization for hardware load-store bonding)",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.xsfcease)] = .{
+         .llvm_name = "xsfcease",
+         .description = "'XSfcease' (SiFive sf.cease Instruction)",
+@@ -1304,7 +1506,16 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zabha)] = .{
+         .llvm_name = "zabha",
+         .description = "'Zabha' (Byte and Halfword Atomic Memory Operations)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zaamo,
++        }),
++    };
++    result[@intFromEnum(Feature.zacas)] = .{
++        .llvm_name = "zacas",
++        .description = "'Zacas' (Atomic Compare-And-Swap Instructions)",
++        .dependencies = featureSet(&[_]Feature{
++            .zaamo,
++        }),
+     };
+     result[@intFromEnum(Feature.zalrsc)] = .{
+         .llvm_name = "zalrsc",
+@@ -1535,7 +1746,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.zicsr)] = .{
+         .llvm_name = "zicsr",
+-        .description = "'zicsr' (CSRs)",
++        .description = "'Zicsr' (CSRs)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.zifencei)] = .{
+@@ -1652,7 +1863,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zvbc)] = .{
+         .llvm_name = "zvbc",
+         .description = "'Zvbc' (Vector Carryless Multiplication)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve64x,
++        }),
+     };
+     result[@intFromEnum(Feature.zve32f)] = .{
+         .llvm_name = "zve32f",
+@@ -1696,7 +1909,7 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.zvfbfmin)] = .{
+         .llvm_name = "zvfbfmin",
+-        .description = "'Zvbfmin' (Vector BF16 Converts)",
++        .description = "'Zvfbfmin' (Vector BF16 Converts)",
+         .dependencies = featureSet(&[_]Feature{
+             .zve32f,
+         }),
+@@ -1727,12 +1940,16 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zvkb)] = .{
+         .llvm_name = "zvkb",
+         .description = "'Zvkb' (Vector Bit-manipulation used in Cryptography)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
+     };
+     result[@intFromEnum(Feature.zvkg)] = .{
+         .llvm_name = "zvkg",
+         .description = "'Zvkg' (Vector GCM instructions for Cryptography)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
+     };
+     result[@intFromEnum(Feature.zvkn)] = .{
+         .llvm_name = "zvkn",
+@@ -1755,11 +1972,13 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zvkned)] = .{
+         .llvm_name = "zvkned",
+         .description = "'Zvkned' (Vector AES Encryption & Decryption (Single Round))",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
+     };
+     result[@intFromEnum(Feature.zvkng)] = .{
+         .llvm_name = "zvkng",
+-        .description = "'zvkng' (shorthand for 'Zvkn' and 'Zvkg')",
++        .description = "'Zvkng' (shorthand for 'Zvkn' and 'Zvkg')",
+         .dependencies = featureSet(&[_]Feature{
+             .zvkg,
+             .zvkn,
+@@ -1768,7 +1987,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zvknha)] = .{
+         .llvm_name = "zvknha",
+         .description = "'Zvknha' (Vector SHA-2 (SHA-256 only))",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
+     };
+     result[@intFromEnum(Feature.zvknhb)] = .{
+         .llvm_name = "zvknhb",
+@@ -1798,7 +2019,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zvksed)] = .{
+         .llvm_name = "zvksed",
+         .description = "'Zvksed' (SM4 Block Cipher Instructions)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
+     };
+     result[@intFromEnum(Feature.zvksg)] = .{
+         .llvm_name = "zvksg",
+@@ -1811,7 +2034,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.zvksh)] = .{
+         .llvm_name = "zvksh",
+         .description = "'Zvksh' (SM3 Hash Function Instructions)",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .zve32x,
++        }),
+     };
+     result[@intFromEnum(Feature.zvkt)] = .{
+         .llvm_name = "zvkt",
+@@ -1820,82 +2045,82 @@ pub const all_features = blk: {
+     };
+     result[@intFromEnum(Feature.zvl1024b)] = .{
+         .llvm_name = "zvl1024b",
+-        .description = "'Zvl' (Minimum Vector Length) 1024",
++        .description = "'Zvl1024b' (Minimum Vector Length 1024)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl512b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl128b)] = .{
+         .llvm_name = "zvl128b",
+-        .description = "'Zvl' (Minimum Vector Length) 128",
++        .description = "'Zvl128b' (Minimum Vector Length 128)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl64b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl16384b)] = .{
+         .llvm_name = "zvl16384b",
+-        .description = "'Zvl' (Minimum Vector Length) 16384",
++        .description = "'Zvl16384b' (Minimum Vector Length 16384)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl8192b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl2048b)] = .{
+         .llvm_name = "zvl2048b",
+-        .description = "'Zvl' (Minimum Vector Length) 2048",
++        .description = "'Zvl2048b' (Minimum Vector Length 2048)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl1024b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl256b)] = .{
+         .llvm_name = "zvl256b",
+-        .description = "'Zvl' (Minimum Vector Length) 256",
++        .description = "'Zvl256b' (Minimum Vector Length 256)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl128b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl32768b)] = .{
+         .llvm_name = "zvl32768b",
+-        .description = "'Zvl' (Minimum Vector Length) 32768",
++        .description = "'Zvl32768b' (Minimum Vector Length 32768)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl16384b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl32b)] = .{
+         .llvm_name = "zvl32b",
+-        .description = "'Zvl' (Minimum Vector Length) 32",
++        .description = "'Zvl32b' (Minimum Vector Length 32)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.zvl4096b)] = .{
+         .llvm_name = "zvl4096b",
+-        .description = "'Zvl' (Minimum Vector Length) 4096",
++        .description = "'Zvl4096b' (Minimum Vector Length 4096)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl2048b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl512b)] = .{
+         .llvm_name = "zvl512b",
+-        .description = "'Zvl' (Minimum Vector Length) 512",
++        .description = "'Zvl512b' (Minimum Vector Length 512)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl256b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl64b)] = .{
+         .llvm_name = "zvl64b",
+-        .description = "'Zvl' (Minimum Vector Length) 64",
++        .description = "'Zvl64b' (Minimum Vector Length 64)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl32b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl65536b)] = .{
+         .llvm_name = "zvl65536b",
+-        .description = "'Zvl' (Minimum Vector Length) 65536",
++        .description = "'Zvl65536b' (Minimum Vector Length 65536)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl32768b,
+         }),
+     };
+     result[@intFromEnum(Feature.zvl8192b)] = .{
+         .llvm_name = "zvl8192b",
+-        .description = "'Zvl' (Minimum Vector Length) 8192",
++        .description = "'Zvl8192b' (Minimum Vector Length 8192)",
+         .dependencies = featureSet(&[_]Feature{
+             .zvl4096b,
+         }),
+@@ -1944,6 +2169,7 @@ pub const cpu = struct {
+         .features = featureSet(&[_]Feature{
+             .@"32bit",
+             .i,
++            .optimized_nf2_segment_load_store,
+         }),
+     };
+     pub const generic_rv64: CpuModel = .{
+@@ -1952,6 +2178,25 @@ pub const cpu = struct {
+         .features = featureSet(&[_]Feature{
+             .@"64bit",
+             .i,
++            .optimized_nf2_segment_load_store,
++        }),
++    };
++    pub const mips_p8700: CpuModel = .{
++        .name = "mips_p8700",
++        .llvm_name = "mips-p8700",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .c,
++            .d,
++            .i,
++            .m,
++            .mips_p8700,
++            .xmipscmove,
++            .xmipslsp,
++            .zba,
++            .zbb,
++            .zifencei,
+         }),
+     };
+     pub const rocket: CpuModel = .{
+@@ -1979,6 +2224,25 @@ pub const cpu = struct {
+             .zifencei,
+         }),
+     };
++    pub const rp2350_hazard3: CpuModel = .{
++        .name = "rp2350_hazard3",
++        .llvm_name = "rp2350-hazard3",
++        .features = featureSet(&[_]Feature{
++            .@"32bit",
++            .a,
++            .c,
++            .i,
++            .m,
++            .zba,
++            .zbb,
++            .zbkb,
++            .zbs,
++            .zcb,
++            .zcmp,
++            .zicsr,
++            .zifencei,
++        }),
++    };
+     pub const sifive_7_series: CpuModel = .{
+         .name = "sifive_7_series",
+         .llvm_name = "sifive-7-series",
+@@ -2075,6 +2339,7 @@ pub const cpu = struct {
+             .@"64bit",
+             .a,
+             .auipc_addi_fusion,
++            .b,
+             .c,
+             .conditional_cmv_fusion,
+             .d,
+@@ -2086,9 +2351,6 @@ pub const cpu = struct {
+             .unaligned_vector_mem,
+             .use_postra_scheduler,
+             .za64rs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+             .zfhmin,
+             .zic64b,
+             .zicbom,
+@@ -2098,10 +2360,77 @@ pub const cpu = struct {
+             .ziccif,
+             .zicclsm,
+             .ziccrse,
++            .zicntr,
++            .zifencei,
++            .zihintntl,
++            .zihintpause,
++            .zihpm,
++            .zkt,
++        }),
++    };
++    pub const sifive_p470: CpuModel = .{
++        .name = "sifive_p470",
++        .llvm_name = "sifive-p470",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .auipc_addi_fusion,
++            .b,
++            .c,
++            .conditional_cmv_fusion,
++            .i,
++            .lui_addi_fusion,
++            .m,
++            .no_default_unroll,
++            .no_sink_splat_operands,
++            .unaligned_scalar_mem,
++            .unaligned_vector_mem,
++            .use_postra_scheduler,
++            .v,
++            .vxrm_pipeline_flush,
++            .xsifivecdiscarddlone,
++            .xsifivecflushdlone,
++            .za64rs,
++            .zfhmin,
++            .zic64b,
++            .zicbom,
++            .zicbop,
++            .zicboz,
++            .ziccamoa,
++            .ziccif,
++            .zicclsm,
++            .ziccrse,
++            .zicntr,
+             .zifencei,
+             .zihintntl,
+             .zihintpause,
+             .zihpm,
++            .zkt,
++            .zvbb,
++            .zvknc,
++            .zvkng,
++            .zvksc,
++            .zvksg,
++        }),
++    };
++    pub const sifive_p550: CpuModel = .{
++        .name = "sifive_p550",
++        .llvm_name = "sifive-p550",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .auipc_addi_fusion,
++            .c,
++            .conditional_cmv_fusion,
++            .d,
++            .i,
++            .lui_addi_fusion,
++            .m,
++            .no_default_unroll,
++            .use_postra_scheduler,
++            .zba,
++            .zbb,
++            .zifencei,
+         }),
+     };
+     pub const sifive_p670: CpuModel = .{
+@@ -2111,6 +2440,7 @@ pub const cpu = struct {
+             .@"64bit",
+             .a,
+             .auipc_addi_fusion,
++            .b,
+             .c,
+             .conditional_cmv_fusion,
+             .i,
+@@ -2122,10 +2452,8 @@ pub const cpu = struct {
+             .unaligned_vector_mem,
+             .use_postra_scheduler,
+             .v,
++            .vxrm_pipeline_flush,
+             .za64rs,
+-            .zba,
+-            .zbb,
+-            .zbs,
+             .zfhmin,
+             .zic64b,
+             .zicbom,
+@@ -2135,10 +2463,12 @@ pub const cpu = struct {
+             .ziccif,
+             .zicclsm,
+             .ziccrse,
++            .zicntr,
+             .zifencei,
+             .zihintntl,
+             .zihintpause,
+             .zihpm,
++            .zkt,
+             .zvbb,
+             .zvknc,
+             .zvkng,
+@@ -2242,6 +2572,7 @@ pub const cpu = struct {
+             .i,
+             .m,
+             .no_default_unroll,
++            .optimized_nf2_segment_load_store,
+             .optimized_zero_stride_load,
+             .short_forward_branch_opt,
+             .use_postra_scheduler,
+@@ -2260,10 +2591,14 @@ pub const cpu = struct {
+         .features = featureSet(&[_]Feature{
+             .@"64bit",
+             .a,
++            .b,
+             .c,
+             .dlen_factor_2,
+             .i,
+             .m,
++            .optimized_nf2_segment_load_store,
++            .optimized_nf3_segment_load_store,
++            .optimized_nf4_segment_load_store,
+             .ssccptr,
+             .sscofpmf,
+             .sscounterenw,
+@@ -2275,13 +2610,12 @@ pub const cpu = struct {
+             .svinval,
+             .svnapot,
+             .svpbmt,
++            .unaligned_scalar_mem,
+             .v,
++            .vxrm_pipeline_flush,
+             .za64rs,
+-            .zba,
+-            .zbb,
+             .zbc,
+             .zbkc,
+-            .zbs,
+             .zfh,
+             .zic64b,
+             .zicbom,
+@@ -2356,6 +2690,149 @@ pub const cpu = struct {
+             .zifencei,
+         }),
+     };
++    pub const syntacore_scr4_rv32: CpuModel = .{
++        .name = "syntacore_scr4_rv32",
++        .llvm_name = "syntacore-scr4-rv32",
++        .features = featureSet(&[_]Feature{
++            .@"32bit",
++            .c,
++            .d,
++            .i,
++            .m,
++            .no_default_unroll,
++            .use_postra_scheduler,
++            .zifencei,
++        }),
++    };
++    pub const syntacore_scr4_rv64: CpuModel = .{
++        .name = "syntacore_scr4_rv64",
++        .llvm_name = "syntacore-scr4-rv64",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .c,
++            .d,
++            .i,
++            .m,
++            .no_default_unroll,
++            .use_postra_scheduler,
++            .zifencei,
++        }),
++    };
++    pub const syntacore_scr5_rv32: CpuModel = .{
++        .name = "syntacore_scr5_rv32",
++        .llvm_name = "syntacore-scr5-rv32",
++        .features = featureSet(&[_]Feature{
++            .@"32bit",
++            .a,
++            .c,
++            .d,
++            .i,
++            .m,
++            .no_default_unroll,
++            .use_postra_scheduler,
++            .zifencei,
++        }),
++    };
++    pub const syntacore_scr5_rv64: CpuModel = .{
++        .name = "syntacore_scr5_rv64",
++        .llvm_name = "syntacore-scr5-rv64",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .c,
++            .d,
++            .i,
++            .m,
++            .no_default_unroll,
++            .use_postra_scheduler,
++            .zifencei,
++        }),
++    };
++    pub const syntacore_scr7: CpuModel = .{
++        .name = "syntacore_scr7",
++        .llvm_name = "syntacore-scr7",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .c,
++            .i,
++            .m,
++            .no_default_unroll,
++            .use_postra_scheduler,
++            .v,
++            .zba,
++            .zbb,
++            .zbc,
++            .zbs,
++            .zifencei,
++            .zkn,
++        }),
++    };
++    pub const tt_ascalon_d8: CpuModel = .{
++        .name = "tt_ascalon_d8",
++        .llvm_name = "tt-ascalon-d8",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .a,
++            .b,
++            .c,
++            .i,
++            .m,
++            .no_default_unroll,
++            .optimized_zero_stride_load,
++            .sha,
++            .smaia,
++            .ssaia,
++            .ssccptr,
++            .sscofpmf,
++            .sscounterenw,
++            .ssnpm,
++            .ssstrict,
++            .sstc,
++            .sstvala,
++            .sstvecd,
++            .ssu64xl,
++            .supm,
++            .svade,
++            .svbare,
++            .svinval,
++            .svnapot,
++            .svpbmt,
++            .unaligned_scalar_mem,
++            .unaligned_vector_mem,
++            .use_postra_scheduler,
++            .v,
++            .za64rs,
++            .zawrs,
++            .zcb,
++            .zcmop,
++            .zfa,
++            .zfh,
++            .zic64b,
++            .zicbom,
++            .zicbop,
++            .zicboz,
++            .ziccamoa,
++            .ziccif,
++            .zicclsm,
++            .ziccrse,
++            .zicntr,
++            .zicond,
++            .zifencei,
++            .zihintntl,
++            .zihintpause,
++            .zihpm,
++            .zimop,
++            .zkt,
++            .zvbb,
++            .zvbc,
++            .zvfbfwma,
++            .zvfh,
++            .zvkng,
++            .zvl256b,
++        }),
++    };
+     pub const veyron_v1: CpuModel = .{
+         .name = "veyron_v1",
+         .llvm_name = "veyron-v1",
+diff --git a/lib/std/Target/s390x.zig b/lib/std/Target/s390x.zig
+index a11bbf1161..de8427ac4a 100644
+--- a/lib/std/Target/s390x.zig
++++ b/lib/std/Target/s390x.zig
+@@ -7,6 +7,7 @@ const CpuModel = std.Target.Cpu.Model;
+ pub const Feature = enum {
+     backchain,
+     bear_enhancement,
++    concurrent_functions,
+     deflate_conversion,
+     dfp_packed_conversion,
+     dfp_zoned_conversion,
+@@ -24,6 +25,7 @@ pub const Feature = enum {
+     load_and_zero_rightmost_byte,
+     load_store_on_cond,
+     load_store_on_cond_2,
++    message_security_assist_extension12,
+     message_security_assist_extension3,
+     message_security_assist_extension4,
+     message_security_assist_extension5,
+@@ -33,6 +35,7 @@ pub const Feature = enum {
+     miscellaneous_extensions,
+     miscellaneous_extensions_2,
+     miscellaneous_extensions_3,
++    miscellaneous_extensions_4,
+     nnp_assist,
+     population_count,
+     processor_activity_instrumentation,
+@@ -46,9 +49,11 @@ pub const Feature = enum {
+     vector,
+     vector_enhancements_1,
+     vector_enhancements_2,
++    vector_enhancements_3,
+     vector_packed_decimal,
+     vector_packed_decimal_enhancement,
+     vector_packed_decimal_enhancement_2,
++    vector_packed_decimal_enhancement_3,
+ };
+ 
+ pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+@@ -70,6 +75,11 @@ pub const all_features = blk: {
+         .description = "Assume that the BEAR-enhancement facility is installed",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.concurrent_functions)] = .{
++        .llvm_name = "concurrent-functions",
++        .description = "Assume that the concurrent-functions facility is installed",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.deflate_conversion)] = .{
+         .llvm_name = "deflate-conversion",
+         .description = "Assume that the deflate-conversion facility is installed",
+@@ -155,6 +165,11 @@ pub const all_features = blk: {
+         .description = "Assume that the load/store-on-condition facility 2 is installed",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.message_security_assist_extension12)] = .{
++        .llvm_name = "message-security-assist-extension12",
++        .description = "Assume that the message-security-assist extension facility 12 is installed",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.message_security_assist_extension3)] = .{
+         .llvm_name = "message-security-assist-extension3",
+         .description = "Assume that the message-security-assist extension facility 3 is installed",
+@@ -200,6 +215,11 @@ pub const all_features = blk: {
+         .description = "Assume that the miscellaneous-extensions facility 3 is installed",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.miscellaneous_extensions_4)] = .{
++        .llvm_name = "miscellaneous-extensions-4",
++        .description = "Assume that the miscellaneous-extensions facility 4 is installed",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.nnp_assist)] = .{
+         .llvm_name = "nnp-assist",
+         .description = "Assume that the NNP-assist facility is installed",
+@@ -265,6 +285,11 @@ pub const all_features = blk: {
+         .description = "Assume that the vector enhancements facility 2 is installed",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.vector_enhancements_3)] = .{
++        .llvm_name = "vector-enhancements-3",
++        .description = "Assume that the vector enhancements facility 3 is installed",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.vector_packed_decimal)] = .{
+         .llvm_name = "vector-packed-decimal",
+         .description = "Assume that the vector packed decimal facility is installed",
+@@ -280,6 +305,11 @@ pub const all_features = blk: {
+         .description = "Assume that the vector packed decimal enhancement facility 2 is installed",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.vector_packed_decimal_enhancement_3)] = .{
++        .llvm_name = "vector-packed-decimal-enhancement-3",
++        .description = "Assume that the vector packed decimal enhancement facility 3 is installed",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     const ti = @typeInfo(Feature);
+     for (&result, 0..) |*elem, i| {
+         elem.index = i;
+@@ -465,6 +495,58 @@ pub const cpu = struct {
+             .vector_packed_decimal_enhancement_2,
+         }),
+     };
++    pub const arch15: CpuModel = .{
++        .name = "arch15",
++        .llvm_name = "arch15",
++        .features = featureSet(&[_]Feature{
++            .bear_enhancement,
++            .concurrent_functions,
++            .deflate_conversion,
++            .dfp_packed_conversion,
++            .dfp_zoned_conversion,
++            .distinct_ops,
++            .enhanced_dat_2,
++            .enhanced_sort,
++            .execution_hint,
++            .fast_serialization,
++            .fp_extension,
++            .guarded_storage,
++            .high_word,
++            .insert_reference_bits_multiple,
++            .interlocked_access1,
++            .load_and_trap,
++            .load_and_zero_rightmost_byte,
++            .load_store_on_cond,
++            .load_store_on_cond_2,
++            .message_security_assist_extension12,
++            .message_security_assist_extension3,
++            .message_security_assist_extension4,
++            .message_security_assist_extension5,
++            .message_security_assist_extension7,
++            .message_security_assist_extension8,
++            .message_security_assist_extension9,
++            .miscellaneous_extensions,
++            .miscellaneous_extensions_2,
++            .miscellaneous_extensions_3,
++            .miscellaneous_extensions_4,
++            .nnp_assist,
++            .population_count,
++            .processor_activity_instrumentation,
++            .processor_assist,
++            .reset_dat_protection,
++            .reset_reference_bits_multiple,
++            .test_pending_external_interruption,
++            .transactional_execution,
++            .vector,
++            .vector_enhancements_1,
++            .vector_enhancements_2,
++            .vector_enhancements_3,
++            .vector_packed_decimal,
++            .vector_packed_decimal_enhancement,
++            .vector_packed_decimal_enhancement_2,
++            .vector_packed_decimal_enhancement_3,
++        }),
++    };
+     pub const arch8: CpuModel = .{
+         .name = "arch8",
+         .llvm_name = "arch8",
+diff --git a/lib/std/Target/sparc.zig b/lib/std/Target/sparc.zig
+index 709e4a097d..4cec3c28e1 100644
+--- a/lib/std/Target/sparc.zig
++++ b/lib/std/Target/sparc.zig
+@@ -7,6 +7,11 @@ const CpuModel = std.Target.Cpu.Model;
+ pub const Feature = enum {
+     deprecated_v8,
+     detectroundchange,
++    fix_tn0009,
++    fix_tn0010,
++    fix_tn0011,
++    fix_tn0012,
++    fix_tn0013,
+     fixallfdivsqrt,
+     hard_quad_float,
+     hasleoncasa,
+@@ -48,6 +53,7 @@ pub const Feature = enum {
+     slow_rdpc,
+     soft_float,
+     soft_mul_div,
++    v8plus,
+     v9,
+     vis,
+     vis2,
+@@ -73,6 +79,31 @@ pub const all_features = blk: {
+         .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.fix_tn0009)] = .{
++        .llvm_name = "fix-tn0009",
++        .description = "Enable workaround for errata described in GRLIB-TN-0009",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.fix_tn0010)] = .{
++        .llvm_name = "fix-tn0010",
++        .description = "Enable workaround for errata described in GRLIB-TN-0010",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.fix_tn0011)] = .{
++        .llvm_name = "fix-tn0011",
++        .description = "Enable workaround for errata described in GRLIB-TN-0011",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.fix_tn0012)] = .{
++        .llvm_name = "fix-tn0012",
++        .description = "Enable workaround for errata described in GRLIB-TN-0012",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.fix_tn0013)] = .{
++        .llvm_name = "fix-tn0013",
++        .description = "Enable workaround for errata described in GRLIB-TN-0013",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.fixallfdivsqrt)] = .{
+         .llvm_name = "fixallfdivsqrt",
+         .description = "LEON erratum fix: Fix FDIVS/FDIVD/FSQRTS/FSQRTD instructions with NOPs and floating-point store",
+@@ -280,6 +311,11 @@ pub const all_features = blk: {
+         .description = "Use software emulation for integer multiply and divide",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.v8plus)] = .{
++        .llvm_name = "v8plus",
++        .description = "Enable V8+ mode, allowing use of 64-bit V9 instructions in 32-bit code",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.v9)] = .{
+         .llvm_name = "v9",
+         .description = "Enable SPARC-V9 instructions",
+diff --git a/lib/std/Target/wasm.zig b/lib/std/Target/wasm.zig
+index d5d4dc8f7e..3862a91edd 100644
+--- a/lib/std/Target/wasm.zig
++++ b/lib/std/Target/wasm.zig
+@@ -7,9 +7,11 @@ const CpuModel = std.Target.Cpu.Model;
+ pub const Feature = enum {
+     atomics,
+     bulk_memory,
++    bulk_memory_opt,
++    call_indirect_overlong,
+     exception_handling,
+     extended_const,
+-    half_precision,
++    fp16,
+     multimemory,
+     multivalue,
+     mutable_globals,
+@@ -20,6 +22,7 @@ pub const Feature = enum {
+     sign_ext,
+     simd128,
+     tail_call,
++    wide_arithmetic,
+ };
+ 
+ pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+@@ -39,6 +42,18 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.bulk_memory)] = .{
+         .llvm_name = "bulk-memory",
+         .description = "Enable bulk memory operations",
++        .dependencies = featureSet(&[_]Feature{
++            .bulk_memory_opt,
++        }),
++    };
++    result[@intFromEnum(Feature.bulk_memory_opt)] = .{
++        .llvm_name = "bulk-memory-opt",
++        .description = "Enable bulk memory optimization operations",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
++    result[@intFromEnum(Feature.call_indirect_overlong)] = .{
++        .llvm_name = "call-indirect-overlong",
++        .description = "Enable overlong encoding for call_indirect immediates",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.exception_handling)] = .{
+@@ -51,9 +66,9 @@ pub const all_features = blk: {
+         .description = "Enable extended const expressions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+-    result[@intFromEnum(Feature.half_precision)] = .{
+-        .llvm_name = "half-precision",
+-        .description = "Enable half precision instructions",
++    result[@intFromEnum(Feature.fp16)] = .{
++        .llvm_name = "fp16",
++        .description = "Enable FP16 instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
+     result[@intFromEnum(Feature.multimemory)] = .{
+@@ -75,7 +90,7 @@ pub const all_features = blk: {
+         .llvm_name = null,
+         .description = "Bulk memory operations with a zero length do not trap",
+         .dependencies = featureSet(&[_]Feature{
+-            .bulk_memory,
++            .bulk_memory_opt,
+         }),
+     };
+     result[@intFromEnum(Feature.nontrapping_fptoint)] = .{
+@@ -86,7 +101,9 @@ pub const all_features = blk: {
+     result[@intFromEnum(Feature.reference_types)] = .{
+         .llvm_name = "reference-types",
+         .description = "Enable reference types",
+-        .dependencies = featureSet(&[_]Feature{}),
++        .dependencies = featureSet(&[_]Feature{
++            .call_indirect_overlong,
++        }),
+     };
+     result[@intFromEnum(Feature.relaxed_simd)] = .{
+         .llvm_name = "relaxed-simd",
+@@ -108,6 +125,11 @@ pub const all_features = blk: {
+         .description = "Enable tail call instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.wide_arithmetic)] = .{
++        .llvm_name = "wide-arithmetic",
++        .description = "Enable wide-arithmetic instructions",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     const ti = @typeInfo(Feature);
+     for (&result, 0..) |*elem, i| {
+         elem.index = i;
+@@ -125,7 +147,7 @@ pub const cpu = struct {
+             .bulk_memory,
+             .exception_handling,
+             .extended_const,
+-            .half_precision,
++            .fp16,
+             .multimemory,
+             .multivalue,
+             .mutable_globals,
+@@ -141,17 +163,20 @@ pub const cpu = struct {
+         .name = "generic",
+         .llvm_name = "generic",
+         .features = featureSet(&[_]Feature{
++            .bulk_memory,
+             .multivalue,
+             .mutable_globals,
++            .nontrapping_fptoint,
+             .reference_types,
+             .sign_ext,
+         }),
+     };
+     pub const lime1: CpuModel = .{
+         .name = "lime1",
+-        .llvm_name = null,
++        .llvm_name = "lime1",
+         .features = featureSet(&[_]Feature{
+-            .bulk_memory,
++            .bulk_memory_opt,
++            .call_indirect_overlong,
+             .extended_const,
+             .multivalue,
+             .mutable_globals,
+diff --git a/lib/std/Target/x86.zig b/lib/std/Target/x86.zig
+index 76dddb222d..e844b01e3e 100644
+--- a/lib/std/Target/x86.zig
++++ b/lib/std/Target/x86.zig
+@@ -13,14 +13,21 @@ pub const Feature = enum {
+     adx,
+     aes,
+     allow_light_256_bit,
++    amx_avx512,
+     amx_bf16,
+     amx_complex,
+     amx_fp16,
++    amx_fp8,
+     amx_int8,
++    amx_movrs,
++    amx_tf32,
+     amx_tile,
++    amx_transpose,
+     avx,
+     avx10_1_256,
+     avx10_1_512,
++    avx10_2_256,
++    avx10_2_512,
+     avx2,
+     avx512bf16,
+     avx512bitalg,
+@@ -114,6 +121,7 @@ pub const Feature = enum {
+     movbe,
+     movdir64b,
+     movdiri,
++    movrs,
+     mwaitx,
+     ndd,
+     nf,
+@@ -257,6 +265,13 @@ pub const all_features = blk: {
+         .description = "Enable generation of 256-bit load/stores even if we prefer 128-bit",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.amx_avx512)] = .{
++        .llvm_name = "amx-avx512",
++        .description = "Support AMX-AVX512 instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .amx_tile,
++        }),
++    };
+     result[@intFromEnum(Feature.amx_bf16)] = .{
+         .llvm_name = "amx-bf16",
+         .description = "Support AMX-BF16 instructions",
+@@ -278,6 +293,13 @@ pub const all_features = blk: {
+             .amx_tile,
+         }),
+     };
++    result[@intFromEnum(Feature.amx_fp8)] = .{
++        .llvm_name = "amx-fp8",
++        .description = "Support AMX-FP8 instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .amx_tile,
++        }),
++    };
+     result[@intFromEnum(Feature.amx_int8)] = .{
+         .llvm_name = "amx-int8",
+         .description = "Support AMX-INT8 instructions",
+@@ -285,11 +307,32 @@ pub const all_features = blk: {
+             .amx_tile,
+         }),
+     };
++    result[@intFromEnum(Feature.amx_movrs)] = .{
++        .llvm_name = "amx-movrs",
++        .description = "Support AMX-MOVRS instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .amx_tile,
++        }),
++    };
++    result[@intFromEnum(Feature.amx_tf32)] = .{
++        .llvm_name = "amx-tf32",
++        .description = "Support AMX-TF32 instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .amx_tile,
++        }),
++    };
+     result[@intFromEnum(Feature.amx_tile)] = .{
+         .llvm_name = "amx-tile",
+         .description = "Support AMX-TILE instructions",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.amx_transpose)] = .{
++        .llvm_name = "amx-transpose",
++        .description = "Support AMX amx-transpose instructions",
++        .dependencies = featureSet(&[_]Feature{
++            .amx_tile,
++        }),
++    };
+     result[@intFromEnum(Feature.avx)] = .{
+         .llvm_name = "avx",
+         .description = "Enable AVX instructions",
+@@ -322,6 +365,21 @@ pub const all_features = blk: {
+             .evex512,
+         }),
+     };
++    result[@intFromEnum(Feature.avx10_2_256)] = .{
++        .llvm_name = "avx10.2-256",
++        .description = "Support AVX10.2 up to 256-bit instruction",
++        .dependencies = featureSet(&[_]Feature{
++            .avx10_1_256,
++        }),
++    };
++    result[@intFromEnum(Feature.avx10_2_512)] = .{
++        .llvm_name = "avx10.2-512",
++        .description = "Support AVX10.2 up to 512-bit instruction",
++        .dependencies = featureSet(&[_]Feature{
++            .avx10_1_512,
++            .avx10_2_256,
++        }),
++    };
+     result[@intFromEnum(Feature.avx2)] = .{
+         .llvm_name = "avx2",
+         .description = "Enable AVX2 instructions",
+@@ -848,6 +906,11 @@ pub const all_features = blk: {
+         .description = "Support movdiri instruction (direct store integer)",
+         .dependencies = featureSet(&[_]Feature{}),
+     };
++    result[@intFromEnum(Feature.movrs)] = .{
++        .llvm_name = "movrs",
++        .description = "Enable MOVRS",
++        .dependencies = featureSet(&[_]Feature{}),
++    };
+     result[@intFromEnum(Feature.mwaitx)] = .{
+         .llvm_name = "mwaitx",
+         .description = "Enable MONITORX/MWAITX timer functionality",
+@@ -2412,6 +2475,106 @@ pub const cpu = struct {
+             .x87,
+         }),
+     };
++    pub const diamondrapids: CpuModel = .{
++        .name = "diamondrapids",
++        .llvm_name = "diamondrapids",
++        .features = featureSet(&[_]Feature{
++            .@"64bit",
++            .adx,
++            .allow_light_256_bit,
++            .amx_avx512,
++            .amx_bf16,
++            .amx_complex,
++            .amx_fp16,
++            .amx_fp8,
++            .amx_int8,
++            .amx_movrs,
++            .amx_tf32,
++            .amx_transpose,
++            .avx10_2_512,
++            .avxifma,
++            .avxneconvert,
++            .avxvnni,
++            .avxvnniint16,
++            .avxvnniint8,
++            .bmi,
++            .bmi2,
++            .branch_hint,
++            .ccmp,
++            .cf,
++            .cldemote,
++            .clflushopt,
++            .clwb,
++            .cmov,
++            .cmpccxadd,
++            .cx16,
++            .egpr,
++            .enqcmd,
++            .ermsb,
++            .false_deps_getmant,
++            .false_deps_mulc,
++            .false_deps_mullq,
++            .false_deps_perm,
++            .false_deps_range,
++            .fast_15bytenop,
++            .fast_gather,
++            .fast_scalar_fsqrt,
++            .fast_shld_rotate,
++            .fast_variable_crosslane_shuffle,
++            .fast_variable_perlane_shuffle,
++            .fast_vector_fsqrt,
++            .fsgsbase,
++            .fsrm,
++            .fxsr,
++            .gfni,
++            .idivq_to_divl,
++            .invpcid,
++            .lzcnt,
++            .macrofusion,
++            .mmx,
++            .movbe,
++            .movdir64b,
++            .movdiri,
++            .movrs,
++            .ndd,
++            .nf,
++            .no_bypass_delay_blend,
++            .no_bypass_delay_mov,
++            .no_bypass_delay_shuffle,
++            .nopl,
++            .pconfig,
++            .pku,
++            .popcnt,
++            .ppx,
++            .prefer_256_bit,
++            .prefetchi,
++            .prfchw,
++            .ptwrite,
++            .push2pop2,
++            .rdpid,
++            .rdrnd,
++            .rdseed,
++            .sahf,
++            .serialize,
++            .sha,
++            .sha512,
++            .shstk,
++            .sm3,
++            .sm4,
++            .tsxldtrk,
++            .tuning_fast_imm_vector_shift,
++            .uintr,
++            .usermsr,
++            .vzeroupper,
++            .waitpkg,
++            .wbnoinvd,
++            .x87,
++            .xsavec,
++            .xsaveopt,
++            .xsaves,
++            .zu,
++        }),
++    };
+     pub const emeraldrapids: CpuModel = .{
+         .name = "emeraldrapids",
+         .llvm_name = "emeraldrapids",
+diff --git a/src/codegen/llvm.zig b/src/codegen/llvm.zig
+index b165f1fc81..814ce05165 100644
+--- a/src/codegen/llvm.zig
++++ b/src/codegen/llvm.zig
+@@ -141,6 +141,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
+             .{ .v9_3a, "v9.3a" },
+             .{ .v9_4a, "v9.4a" },
+             .{ .v9_5a, "v9.5a" },
++            .{ .v9_6a, "v9.6a" },
+         }),
+         .powerpc => subArchName(features, std.Target.powerpc, .{
+             .{ .spe, "spe" },
+diff --git a/src/link/Wasm.zig b/src/link/Wasm.zig
+index da722b0531..f948ccb204 100644
+--- a/src/link/Wasm.zig
++++ b/src/link/Wasm.zig
+@@ -2820,9 +2820,12 @@ pub const Feature = packed struct(u8) {
+     pub const Tag = enum(u6) {
+         atomics,
+         @"bulk-memory",
++        @"bulk-memory-opt",
++        @"call-indirect-overlong",
+         @"exception-handling",
+         @"extended-const",
+-        @"half-precision",
++        fp16,
++        memory64,
+         multimemory,
+         multivalue,
+         @"mutable-globals",
+@@ -2834,14 +2837,17 @@ pub const Feature = packed struct(u8) {
+         simd128,
+         @"tail-call",
+         @"shared-mem",
++        @"wide-arithmetic",
+ 
+         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
+             return switch (feature) {
+                 .atomics => .atomics,
+                 .bulk_memory => .@"bulk-memory",
++                .bulk_memory_opt => .@"bulk-memory-opt",
++                .call_indirect_overlong => .@"call-indirect-overlong",
+                 .exception_handling => .@"exception-handling",
+                 .extended_const => .@"extended-const",
+-                .half_precision => .@"half-precision",
++                .fp16 => .fp16,
+                 .multimemory => .multimemory,
+                 .multivalue => .multivalue,
+                 .mutable_globals => .@"mutable-globals",
+@@ -2852,6 +2858,7 @@ pub const Feature = packed struct(u8) {
+                 .sign_ext => .@"sign-ext",
+                 .simd128 => .simd128,
+                 .tail_call => .@"tail-call",
++                .wide_arithmetic => .@"wide-arithmetic",
+             };
+         }
+ 
+@@ -2859,9 +2866,12 @@ pub const Feature = packed struct(u8) {
+             return switch (tag) {
+                 .atomics => .atomics,
+                 .@"bulk-memory" => .bulk_memory,
++                .@"bulk-memory-opt" => .bulk_memory_opt,
++                .@"call-indirect-overlong" => .call_indirect_overlong,
+                 .@"exception-handling" => .exception_handling,
+                 .@"extended-const" => .extended_const,
+-                .@"half-precision" => .half_precision,
++                .fp16 => .fp16,
++                .memory64 => null, // Linker-only feature.
+                 .multimemory => .multimemory,
+                 .multivalue => .multivalue,
+                 .@"mutable-globals" => .mutable_globals,
+@@ -2873,6 +2883,7 @@ pub const Feature = packed struct(u8) {
+                 .simd128 => .simd128,
+                 .@"tail-call" => .tail_call,
+                 .@"shared-mem" => null, // Linker-only feature.
++                .@"wide-arithmetic" => .wide_arithmetic,
+             };
+         }
+ 
+diff --git a/src/target.zig b/src/target.zig
+index 87035fa374..be25016974 100644
+--- a/src/target.zig
++++ b/src/target.zig
+@@ -288,7 +288,13 @@ pub fn hasDebugInfo(target: std.Target) bool {
+             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
+             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
+             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
+-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81) or
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx82) or
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx83) or
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx84) or
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx85) or
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx86) or
++            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx87),
+         .bpfel, .bpfeb => false,
+         else => true,
+     };
+diff --git a/tools/update_cpu_features.zig b/tools/update_cpu_features.zig
+index e8b3a5431e..9ac7b7ef2a 100644
+--- a/tools/update_cpu_features.zig
++++ b/tools/update_cpu_features.zig
+@@ -778,6 +778,10 @@ const targets = [_]ArchTarget{
+                 .llvm_name = "armv9.5-a",
+                 .zig_name = "v9_5a",
+             },
++            .{
++                .llvm_name = "armv9.6-a",
++                .zig_name = "v9_6a",
++            },
+             .{
+                 .llvm_name = "armv9-a",
+                 .zig_name = "v9a",
+@@ -894,6 +898,10 @@ const targets = [_]ArchTarget{
+                 .llvm_name = "v9.5a",
+                 .zig_name = "has_v9_5a",
+             },
++            .{
++                .llvm_name = "v9.6a",
++                .zig_name = "has_v9_6a",
++            },
+         },
+         .extra_cpus = &.{
+             .{
+@@ -1092,25 +1100,23 @@ const targets = [_]ArchTarget{
+             .name = "WebAssembly",
+             .td_name = "WebAssembly",
+         },
+-        .extra_features = &.{
++        // For whatever reason, LLVM's WebAssembly backend sets these implied features in code
++        // rather than making them proper dependencies, so fix that here...
++        .feature_overrides = &.{
+             .{
+-                .zig_name = "nontrapping_bulk_memory_len0",
+-                .desc = "Bulk memory operations with a zero length do not trap",
+-                .deps = &.{"bulk_memory"},
++                .llvm_name = "bulk-memory",
++                .extra_deps = &.{"bulk_memory_opt"},
++            },
++            .{
++                .llvm_name = "reference-types",
++                .extra_deps = &.{"call_indirect_overlong"},
+             },
+         },
+-        .extra_cpus = &.{
++        .extra_features = &.{
+             .{
+-                .llvm_name = null,
+-                .zig_name = "lime1",
+-                .features = &.{
+-                    "bulk_memory",
+-                    "extended_const",
+-                    "multivalue",
+-                    "mutable_globals",
+-                    "nontrapping_fptoint",
+-                    "sign_ext",
+-                },
++                .zig_name = "nontrapping_bulk_memory_len0",
++                .desc = "Bulk memory operations with a zero length do not trap",
++                .deps = &.{"bulk_memory_opt"},
+             },
+         },
+     },
+-- 
+2.47.3
+

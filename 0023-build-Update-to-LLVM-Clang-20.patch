@@ -1,4 +1,4 @@
-From 684052fa7d824b0b63cbde76788d3128d5e107cc Mon Sep 17 00:00:00 2001
+From e1c8edf50f44e74e17f831ecfece97db14aa463f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
 Date: Wed, 5 Feb 2025 10:15:15 +0100
 Subject: [PATCH] build: Update to LLVM/Clang 20.
@@ -29,10 +29,10 @@ index db0febee72..b802089e48 100644
  if(ZIG_STATIC_ZLIB)
      if (MSVC)
 diff --git a/build.zig b/build.zig
-index 8967906d7b..305cdfc6fd 100644
+index 7aedcdaa93..8d6efe0918 100644
 --- a/build.zig
 +++ b/build.zig
-@@ -1166,10 +1166,10 @@ const llvm_libs = [_][]const u8{
+@@ -1160,10 +1160,10 @@ const llvm_libs = [_][]const u8{
      "LLVMXRay",
      "LLVMLibDriver",
      "LLVMDlltoolDriver",
@@ -44,7 +44,7 @@ index 8967906d7b..305cdfc6fd 100644
      "LLVMXCoreDisassembler",
      "LLVMXCoreCodeGen",
      "LLVMXCoreDesc",
-@@ -1196,6 +1196,10 @@ const llvm_libs = [_][]const u8{
+@@ -1190,6 +1190,10 @@ const llvm_libs = [_][]const u8{
      "LLVMSystemZCodeGen",
      "LLVMSystemZDesc",
      "LLVMSystemZInfo",
@@ -55,7 +55,7 @@ index 8967906d7b..305cdfc6fd 100644
      "LLVMSparcDisassembler",
      "LLVMSparcAsmParser",
      "LLVMSparcCodeGen",
-@@ -1294,6 +1298,7 @@ const llvm_libs = [_][]const u8{
+@@ -1288,6 +1292,7 @@ const llvm_libs = [_][]const u8{
      "LLVMCoroutines",
      "LLVMipo",
      "LLVMVectorize",
@@ -63,7 +63,7 @@ index 8967906d7b..305cdfc6fd 100644
      "LLVMLinker",
      "LLVMInstrumentation",
      "LLVMFrontendOpenMP",
-@@ -1301,11 +1306,11 @@ const llvm_libs = [_][]const u8{
+@@ -1295,11 +1300,11 @@ const llvm_libs = [_][]const u8{
      "LLVMFrontendOpenACC",
      "LLVMFrontendHLSL",
      "LLVMFrontendDriver",
@@ -76,7 +76,7 @@ index 8967906d7b..305cdfc6fd 100644
      "LLVMGlobalISel",
      "LLVMMIRParser",
      "LLVMAsmPrinter",
-@@ -1314,6 +1319,7 @@ const llvm_libs = [_][]const u8{
+@@ -1308,6 +1313,7 @@ const llvm_libs = [_][]const u8{
      "LLVMTarget",
      "LLVMObjCARCOpts",
      "LLVMCodeGenTypes",
@@ -84,7 +84,7 @@ index 8967906d7b..305cdfc6fd 100644
      "LLVMIRPrinter",
      "LLVMInterfaceStub",
      "LLVMFileCheck",
-@@ -1329,6 +1335,7 @@ const llvm_libs = [_][]const u8{
+@@ -1323,6 +1329,7 @@ const llvm_libs = [_][]const u8{
      "LLVMDebugInfoBTF",
      "LLVMDebugInfoPDB",
      "LLVMDebugInfoMSF",
@@ -92,7 +92,7 @@ index 8967906d7b..305cdfc6fd 100644
      "LLVMDebugInfoDWARF",
      "LLVMObject",
      "LLVMTextAPI",
-@@ -1336,7 +1343,6 @@ const llvm_libs = [_][]const u8{
+@@ -1330,7 +1337,6 @@ const llvm_libs = [_][]const u8{
      "LLVMIRReader",
      "LLVMAsmParser",
      "LLVMMC",

@@ -1,0 +1,512 @@
+From aa501e1c4a9811afb1e7b3799d2585be1d1307c4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Wed, 5 Feb 2025 10:27:10 +0100
+Subject: [PATCH] libunwind: Update to LLVM 20.
+
+---
+ lib/libunwind/src/DwarfInstructions.hpp    |  59 ++++++++--
+ lib/libunwind/src/DwarfParser.hpp          |  21 ++++
+ lib/libunwind/src/Unwind-sjlj.c            |   2 +-
+ lib/libunwind/src/UnwindCursor.hpp         | 126 +++++++++++++++------
+ lib/libunwind/src/UnwindRegistersRestore.S |   8 +-
+ lib/libunwind/src/UnwindRegistersSave.S    |   6 +
+ lib/libunwind/src/dwarf2.h                 |  58 +++++-----
+ 7 files changed, 201 insertions(+), 79 deletions(-)
+
+diff --git a/lib/libunwind/src/DwarfInstructions.hpp b/lib/libunwind/src/DwarfInstructions.hpp
+index bd9ece60ee..e7be0d6d5d 100644
+--- a/lib/libunwind/src/DwarfInstructions.hpp
++++ b/lib/libunwind/src/DwarfInstructions.hpp
+@@ -74,8 +74,10 @@ private:
+     __builtin_unreachable();
+   }
+ #if defined(_LIBUNWIND_TARGET_AARCH64)
+-  static bool getRA_SIGN_STATE(A &addressSpace, R registers, pint_t cfa,
+-                               PrologInfo &prolog);
++  static bool isReturnAddressSigned(A &addressSpace, R registers, pint_t cfa,
++                                    PrologInfo &prolog);
++  static bool isReturnAddressSignedWithPC(A &addressSpace, R registers,
++                                          pint_t cfa, PrologInfo &prolog);
+ #endif
+ };
+ 
+@@ -173,8 +175,9 @@ v128 DwarfInstructions<A, R>::getSavedVectorRegister(
+ }
+ #if defined(_LIBUNWIND_TARGET_AARCH64)
+ template <typename A, typename R>
+-bool DwarfInstructions<A, R>::getRA_SIGN_STATE(A &addressSpace, R registers,
+-                                               pint_t cfa, PrologInfo &prolog) {
++bool DwarfInstructions<A, R>::isReturnAddressSigned(A &addressSpace,
++                                                    R registers, pint_t cfa,
++                                                    PrologInfo &prolog) {
+   pint_t raSignState;
+   auto regloc = prolog.savedRegisters[UNW_AARCH64_RA_SIGN_STATE];
+   if (regloc.location == CFI_Parser<A>::kRegisterUnused)
+@@ -185,6 +188,22 @@ bool DwarfInstructions<A, R>::getRA_SIGN_STATE(A &addressSpace, R registers,
+   // Only bit[0] is meaningful.
+   return raSignState & 0x01;
+ }
++
++template <typename A, typename R>
++bool DwarfInstructions<A, R>::isReturnAddressSignedWithPC(A &addressSpace,
++                                                          R registers,
++                                                          pint_t cfa,
++                                                          PrologInfo &prolog) {
++  pint_t raSignState;
++  auto regloc = prolog.savedRegisters[UNW_AARCH64_RA_SIGN_STATE];
++  if (regloc.location == CFI_Parser<A>::kRegisterUnused)
++    raSignState = static_cast<pint_t>(regloc.value);
++  else
++    raSignState = getSavedRegister(addressSpace, registers, cfa, regloc);
++
++  // Only bit[1] is meaningful.
++  return raSignState & 0x02;
++}
+ #endif
+ 
+ template <typename A, typename R>
+@@ -288,7 +307,7 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
+       // restored. autia1716 is used instead of autia as autia1716 assembles
+       // to a NOP on pre-v8.3a architectures.
+       if ((R::getArch() == REGISTERS_ARM64) &&
+-          getRA_SIGN_STATE(addressSpace, registers, cfa, prolog) &&
++          isReturnAddressSigned(addressSpace, registers, cfa, prolog) &&
+           returnAddress != 0) {
+ #if !defined(_LIBUNWIND_IS_NATIVE_ONLY)
+         return UNW_ECROSSRASIGNING;
+@@ -296,13 +315,29 @@ int DwarfInstructions<A, R>::stepWithDwarf(A &addressSpace, pint_t pc,
+         register unsigned long long x17 __asm("x17") = returnAddress;
+         register unsigned long long x16 __asm("x16") = cfa;
+ 
+-        // These are the autia1716/autib1716 instructions. The hint instructions
+-        // are used here as gcc does not assemble autia1716/autib1716 for pre
+-        // armv8.3a targets.
+-        if (cieInfo.addressesSignedWithBKey)
+-          asm("hint 0xe" : "+r"(x17) : "r"(x16)); // autib1716
+-        else
+-          asm("hint 0xc" : "+r"(x17) : "r"(x16)); // autia1716
++        // We use the hint versions of the authentication instructions below to
++        // ensure they're assembled by the compiler even for targets with no
++        // FEAT_PAuth/FEAT_PAuth_LR support.
++        if (isReturnAddressSignedWithPC(addressSpace, registers, cfa, prolog)) {
++          register unsigned long long x15 __asm("x15") =
++              prolog.ptrAuthDiversifier;
++          if (cieInfo.addressesSignedWithBKey) {
++            asm("hint 0x27\n\t" // pacm
++                "hint 0xe"
++                : "+r"(x17)
++                : "r"(x16), "r"(x15)); // autib1716
++          } else {
++            asm("hint 0x27\n\t" // pacm
++                "hint 0xc"
++                : "+r"(x17)
++                : "r"(x16), "r"(x15)); // autia1716
++          }
++        } else {
++          if (cieInfo.addressesSignedWithBKey)
++            asm("hint 0xe" : "+r"(x17) : "r"(x16)); // autib1716
++          else
++            asm("hint 0xc" : "+r"(x17) : "r"(x16)); // autia1716
++        }
+         returnAddress = x17;
+ #endif
+       }
+diff --git a/lib/libunwind/src/DwarfParser.hpp b/lib/libunwind/src/DwarfParser.hpp
+index 0682942ce1..7e85025dd0 100644
+--- a/lib/libunwind/src/DwarfParser.hpp
++++ b/lib/libunwind/src/DwarfParser.hpp
+@@ -91,6 +91,9 @@ public:
+     int64_t           cfaExpression;      // CFA = expression
+     uint32_t          spExtraArgSize;
+     RegisterLocation  savedRegisters[kMaxRegisterNumber + 1];
++#if defined(_LIBUNWIND_TARGET_AARCH64)
++    pint_t ptrAuthDiversifier;
++#endif
+     enum class InitializeTime { kLazy, kNormal };
+ 
+     // When saving registers, this data structure is lazily initialized.
+@@ -799,6 +802,24 @@ bool CFI_Parser<A>::parseFDEInstructions(A &addressSpace,
+         }
+         break;
+ 
++#if defined(_LIBUNWIND_TARGET_AARCH64)
++      case DW_CFA_AARCH64_negate_ra_state_with_pc: {
++        int64_t value =
++            results->savedRegisters[UNW_AARCH64_RA_SIGN_STATE].value ^ 0x3;
++        results->setRegisterValue(UNW_AARCH64_RA_SIGN_STATE, value,
++                                  initialState);
++        // When calculating the value of the PC, it is assumed that the CFI
++        // instruction is placed before the signing instruction, however it is
++        // placed after. Because of this, we need to take into account the CFI
++        // instruction is one instruction call later than expected, and reduce
++        // the PC value by 4 bytes to compensate.
++        results->ptrAuthDiversifier = fdeInfo.pcStart + codeOffset - 0x4;
++        _LIBUNWIND_TRACE_DWARF(
++            "DW_CFA_AARCH64_negate_ra_state_with_pc(pc=0x%" PRIx64 ")\n",
++            static_cast<uint64_t>(results->ptrAuthDiversifier));
++      } break;
++#endif
++
+ #else
+         (void)arch;
+ #endif
+diff --git a/lib/libunwind/src/Unwind-sjlj.c b/lib/libunwind/src/Unwind-sjlj.c
+index 7e8faf098f..a3551b3289 100644
+--- a/lib/libunwind/src/Unwind-sjlj.c
++++ b/lib/libunwind/src/Unwind-sjlj.c
+@@ -408,7 +408,7 @@ _LIBUNWIND_EXPORT uintptr_t
+ _Unwind_GetLanguageSpecificData(struct _Unwind_Context *context) {
+   _Unwind_FunctionContext_t ufc = (_Unwind_FunctionContext_t) context;
+   _LIBUNWIND_TRACE_API("_Unwind_GetLanguageSpecificData(context=%p) "
+-                       "=> 0x%" PRIuPTR,
++                       "=> 0x%" PRIxPTR,
+                        (void *)context, ufc->lsda);
+   return ufc->lsda;
+ }
+diff --git a/lib/libunwind/src/UnwindCursor.hpp b/lib/libunwind/src/UnwindCursor.hpp
+index 06e6541973..3831d8e071 100644
+--- a/lib/libunwind/src/UnwindCursor.hpp
++++ b/lib/libunwind/src/UnwindCursor.hpp
+@@ -230,8 +230,8 @@ void DwarfFDECache<A>::iterateCacheEntries(void (*func)(
+ }
+ #endif // defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+ 
+-
+-#define arrayoffsetof(type, index, field) ((size_t)(&((type *)0)[index].field))
++#define arrayoffsetof(type, index, field)                                      \
++  (sizeof(type) * (index) + offsetof(type, field))
+ 
+ #if defined(_LIBUNWIND_SUPPORT_COMPACT_UNWIND)
+ template <typename A> class UnwindSectionHeader {
+@@ -1010,6 +1010,9 @@ private:
+   template <typename Registers> int stepThroughSigReturn(Registers &) {
+     return UNW_STEP_END;
+   }
++#elif defined(_LIBUNWIND_TARGET_HAIKU)
++  bool setInfoForSigReturn();
++  int stepThroughSigReturn();
+ #endif
+ 
+ #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+@@ -1313,7 +1316,8 @@ private:
+   unw_proc_info_t  _info;
+   bool             _unwindInfoMissing;
+   bool             _isSignalFrame;
+-#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN)
++#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
++    defined(_LIBUNWIND_TARGET_HAIKU)
+   bool             _isSigReturn = false;
+ #endif
+ };
+@@ -2033,7 +2037,6 @@ typedef _Unwind_Reason_Code __xlcxx_personality_v0_t(int, _Unwind_Action,
+                                                      uint64_t,
+                                                      _Unwind_Exception *,
+                                                      struct _Unwind_Context *);
+-__attribute__((__weak__)) __xlcxx_personality_v0_t __xlcxx_personality_v0;
+ }
+ 
+ static __xlcxx_personality_v0_t *xlcPersonalityV0;
+@@ -2126,42 +2129,35 @@ bool UnwindCursor<A, R>::getInfoFromTBTable(pint_t pc, R &registers) {
+     // function __xlcxx_personality_v0(), which is the personality for the state
+     // table and is exported from libc++abi, is directly assigned as the
+     // handler here. When a legacy XLC++ frame is encountered, the symbol
+-    // is resolved dynamically using dlopen() to avoid hard dependency from
+-    // libunwind on libc++abi.
++    // is resolved dynamically using dlopen() to avoid a hard dependency of
++    // libunwind on libc++abi in cases such as non-C++ applications.
+ 
+     // Resolve the function pointer to the state table personality if it has
+-    // not already.
++    // not already been done.
+     if (xlcPersonalityV0 == NULL) {
+       xlcPersonalityV0InitLock.lock();
+       if (xlcPersonalityV0 == NULL) {
+-        // If libc++abi is statically linked in, symbol __xlcxx_personality_v0
+-        // has been resolved at the link time.
+-        xlcPersonalityV0 = &__xlcxx_personality_v0;
++        // Resolve __xlcxx_personality_v0 using dlopen().
++        const char *libcxxabi = "libc++abi.a(libc++abi.so.1)";
++        void *libHandle;
++        // The AIX dlopen() sets errno to 0 when it is successful, which
++        // clobbers the value of errno from the user code. This is an AIX
++        // bug because according to POSIX it should not set errno to 0. To
++        // workaround before AIX fixes the bug, errno is saved and restored.
++        int saveErrno = errno;
++        libHandle = dlopen(libcxxabi, RTLD_MEMBER | RTLD_NOW);
++        if (libHandle == NULL) {
++          _LIBUNWIND_TRACE_UNWINDING("dlopen() failed with errno=%d\n", errno);
++          assert(0 && "dlopen() failed");
++        }
++        xlcPersonalityV0 = reinterpret_cast<__xlcxx_personality_v0_t *>(
++            dlsym(libHandle, "__xlcxx_personality_v0"));
+         if (xlcPersonalityV0 == NULL) {
+-          // libc++abi is dynamically linked. Resolve __xlcxx_personality_v0
+-          // using dlopen().
+-          const char libcxxabi[] = "libc++abi.a(libc++abi.so.1)";
+-          void *libHandle;
+-          // The AIX dlopen() sets errno to 0 when it is successful, which
+-          // clobbers the value of errno from the user code. This is an AIX
+-          // bug because according to POSIX it should not set errno to 0. To
+-          // workaround before AIX fixes the bug, errno is saved and restored.
+-          int saveErrno = errno;
+-          libHandle = dlopen(libcxxabi, RTLD_MEMBER | RTLD_NOW);
+-          if (libHandle == NULL) {
+-            _LIBUNWIND_TRACE_UNWINDING("dlopen() failed with errno=%d\n",
+-                                       errno);
+-            assert(0 && "dlopen() failed");
+-          }
+-          xlcPersonalityV0 = reinterpret_cast<__xlcxx_personality_v0_t *>(
+-              dlsym(libHandle, "__xlcxx_personality_v0"));
+-          if (xlcPersonalityV0 == NULL) {
+-            _LIBUNWIND_TRACE_UNWINDING("dlsym() failed with errno=%d\n", errno);
+-            assert(0 && "dlsym() failed");
+-          }
++          _LIBUNWIND_TRACE_UNWINDING("dlsym() failed with errno=%d\n", errno);
+           dlclose(libHandle);
+-          errno = saveErrno;
++          assert(0 && "dlsym() failed");
+         }
++        errno = saveErrno;
+       }
+       xlcPersonalityV0InitLock.unlock();
+     }
+@@ -2557,7 +2553,8 @@ int UnwindCursor<A, R>::stepWithTBTable(pint_t pc, tbtable *TBTable,
+ 
+ template <typename A, typename R>
+ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
+-#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN)
++#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
++    defined(_LIBUNWIND_TARGET_HAIKU)
+   _isSigReturn = false;
+ #endif
+ 
+@@ -2681,7 +2678,8 @@ void UnwindCursor<A, R>::setInfoBasedOnIPRegister(bool isReturnAddress) {
+   }
+ #endif // #if defined(_LIBUNWIND_SUPPORT_DWARF_UNWIND)
+ 
+-#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN)
++#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
++    defined(_LIBUNWIND_TARGET_HAIKU)
+   if (setInfoForSigReturn())
+     return;
+ #endif
+@@ -2757,6 +2755,63 @@ int UnwindCursor<A, R>::stepThroughSigReturn(Registers_arm64 &) {
+   _isSignalFrame = true;
+   return UNW_STEP_SUCCESS;
+ }
++
++#elif defined(_LIBUNWIND_TARGET_HAIKU) && defined(_LIBUNWIND_TARGET_X86_64)
++#include <commpage_defs.h>
++#include <signal.h>
++
++extern "C" {
++extern void *__gCommPageAddress;
++}
++
++template <typename A, typename R>
++bool UnwindCursor<A, R>::setInfoForSigReturn() {
++#if defined(_LIBUNWIND_TARGET_X86_64)
++  addr_t signal_handler =
++      (((addr_t *)__gCommPageAddress)[COMMPAGE_ENTRY_X86_SIGNAL_HANDLER] +
++       (addr_t)__gCommPageAddress);
++  addr_t signal_handler_ret = signal_handler + 45;
++#endif
++  pint_t pc = static_cast<pint_t>(this->getReg(UNW_REG_IP));
++  if (pc == signal_handler_ret) {
++    _info = {};
++    _info.start_ip = signal_handler;
++    _info.end_ip = signal_handler_ret;
++    _isSigReturn = true;
++    return true;
++  }
++  return false;
++}
++
++template <typename A, typename R>
++int UnwindCursor<A, R>::stepThroughSigReturn() {
++  _isSignalFrame = true;
++  pint_t sp = _registers.getSP();
++#if defined(_LIBUNWIND_TARGET_X86_64)
++  vregs *regs = (vregs *)(sp + 0x70);
++
++  _registers.setRegister(UNW_REG_IP, regs->rip);
++  _registers.setRegister(UNW_REG_SP, regs->rsp);
++  _registers.setRegister(UNW_X86_64_RAX, regs->rax);
++  _registers.setRegister(UNW_X86_64_RDX, regs->rdx);
++  _registers.setRegister(UNW_X86_64_RCX, regs->rcx);
++  _registers.setRegister(UNW_X86_64_RBX, regs->rbx);
++  _registers.setRegister(UNW_X86_64_RSI, regs->rsi);
++  _registers.setRegister(UNW_X86_64_RDI, regs->rdi);
++  _registers.setRegister(UNW_X86_64_RBP, regs->rbp);
++  _registers.setRegister(UNW_X86_64_R8, regs->r8);
++  _registers.setRegister(UNW_X86_64_R9, regs->r9);
++  _registers.setRegister(UNW_X86_64_R10, regs->r10);
++  _registers.setRegister(UNW_X86_64_R11, regs->r11);
++  _registers.setRegister(UNW_X86_64_R12, regs->r12);
++  _registers.setRegister(UNW_X86_64_R13, regs->r13);
++  _registers.setRegister(UNW_X86_64_R14, regs->r14);
++  _registers.setRegister(UNW_X86_64_R15, regs->r15);
++  // TODO: XMM
++#endif
++
++  return UNW_STEP_SUCCESS;
++}
+ #endif // defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) &&
+        // defined(_LIBUNWIND_TARGET_AARCH64)
+ 
+@@ -2925,7 +2980,8 @@ template <typename A, typename R> int UnwindCursor<A, R>::step(bool stage2) {
+ 
+   // Use unwinding info to modify register set as if function returned.
+   int result;
+-#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN)
++#if defined(_LIBUNWIND_CHECK_LINUX_SIGRETURN) ||                               \
++    defined(_LIBUNWIND_TARGET_HAIKU)
+   if (_isSigReturn) {
+     result = this->stepThroughSigReturn();
+   } else
+diff --git a/lib/libunwind/src/UnwindRegistersRestore.S b/lib/libunwind/src/UnwindRegistersRestore.S
+index 9d34c7909e..1702d016c3 100644
+--- a/lib/libunwind/src/UnwindRegistersRestore.S
++++ b/lib/libunwind/src/UnwindRegistersRestore.S
+@@ -658,7 +658,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_arm64_jumpto)
+   ldp    x26,x27, [x0, #0x0D0]
+   ldp    x28,x29, [x0, #0x0E0]
+   ldr    x30,     [x0, #0x100]  // restore pc into lr
+-
++#if defined(__ARM_FP) && __ARM_FP != 0
+   ldp    d0, d1,  [x0, #0x110]
+   ldp    d2, d3,  [x0, #0x120]
+   ldp    d4, d5,  [x0, #0x130]
+@@ -676,7 +676,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_arm64_jumpto)
+   ldp    d28,d29, [x0, #0x1F0]
+   ldr    d30,     [x0, #0x200]
+   ldr    d31,     [x0, #0x208]
+-
++#endif
+   // Finally, restore sp. This must be done after the last read from the
+   // context struct, because it is allocated on the stack, and an exception
+   // could clobber the de-allocated portion of the stack after sp has been
+@@ -1183,7 +1183,11 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_riscv6jumptoEv)
+     ILOAD x\i, (RISCV_ISIZE * \i)(a0)
+   .endr
+   // skip a0 for now
++#if defined(__riscv_32e)
++  .irp i,11,12,13,14,15
++#else
+   .irp i,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
++#endif
+     ILOAD x\i, (RISCV_ISIZE * \i)(a0)
+   .endr
+   ILOAD    x10, (RISCV_ISIZE * 10)(a0)   // restore a0
+diff --git a/lib/libunwind/src/UnwindRegistersSave.S b/lib/libunwind/src/UnwindRegistersSave.S
+index 5bf6055fe4..a489a8ba6d 100644
+--- a/lib/libunwind/src/UnwindRegistersSave.S
++++ b/lib/libunwind/src/UnwindRegistersSave.S
+@@ -746,6 +746,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+   str    x1,      [x0, #0x0F8]
+   str    x30,     [x0, #0x100]    // store return address as pc
+   // skip cpsr
++#if defined(__ARM_FP) && __ARM_FP != 0
+   stp    d0, d1,  [x0, #0x110]
+   stp    d2, d3,  [x0, #0x120]
+   stp    d4, d5,  [x0, #0x130]
+@@ -763,6 +764,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+   stp    d28,d29, [x0, #0x1F0]
+   str    d30,     [x0, #0x200]
+   str    d31,     [x0, #0x208]
++#endif
+   mov    x0, #0                   // return UNW_ESUCCESS
+   ret
+ 
+@@ -1108,7 +1110,11 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+ #
+ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
+   ISTORE    x1, (RISCV_ISIZE * 0)(a0) // store ra as pc
++#if defined(__riscv_32e)
++  .irp i,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
++#else
+   .irp i,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
++#endif
+     ISTORE x\i, (RISCV_ISIZE * \i)(a0)
+   .endr
+ 
+diff --git a/lib/libunwind/src/dwarf2.h b/lib/libunwind/src/dwarf2.h
+index 174277d5a7..68ad882347 100644
+--- a/lib/libunwind/src/dwarf2.h
++++ b/lib/libunwind/src/dwarf2.h
+@@ -18,43 +18,43 @@
+ 
+ // DWARF unwind instructions
+ enum {
+-  DW_CFA_nop                 = 0x0,
+-  DW_CFA_set_loc             = 0x1,
+-  DW_CFA_advance_loc1        = 0x2,
+-  DW_CFA_advance_loc2        = 0x3,
+-  DW_CFA_advance_loc4        = 0x4,
+-  DW_CFA_offset_extended     = 0x5,
+-  DW_CFA_restore_extended    = 0x6,
+-  DW_CFA_undefined           = 0x7,
+-  DW_CFA_same_value          = 0x8,
+-  DW_CFA_register            = 0x9,
+-  DW_CFA_remember_state      = 0xA,
+-  DW_CFA_restore_state       = 0xB,
+-  DW_CFA_def_cfa             = 0xC,
+-  DW_CFA_def_cfa_register    = 0xD,
+-  DW_CFA_def_cfa_offset      = 0xE,
+-  DW_CFA_def_cfa_expression  = 0xF,
+-  DW_CFA_expression         = 0x10,
++  DW_CFA_nop = 0x0,
++  DW_CFA_set_loc = 0x1,
++  DW_CFA_advance_loc1 = 0x2,
++  DW_CFA_advance_loc2 = 0x3,
++  DW_CFA_advance_loc4 = 0x4,
++  DW_CFA_offset_extended = 0x5,
++  DW_CFA_restore_extended = 0x6,
++  DW_CFA_undefined = 0x7,
++  DW_CFA_same_value = 0x8,
++  DW_CFA_register = 0x9,
++  DW_CFA_remember_state = 0xA,
++  DW_CFA_restore_state = 0xB,
++  DW_CFA_def_cfa = 0xC,
++  DW_CFA_def_cfa_register = 0xD,
++  DW_CFA_def_cfa_offset = 0xE,
++  DW_CFA_def_cfa_expression = 0xF,
++  DW_CFA_expression = 0x10,
+   DW_CFA_offset_extended_sf = 0x11,
+-  DW_CFA_def_cfa_sf         = 0x12,
+-  DW_CFA_def_cfa_offset_sf  = 0x13,
+-  DW_CFA_val_offset         = 0x14,
+-  DW_CFA_val_offset_sf      = 0x15,
+-  DW_CFA_val_expression     = 0x16,
+-  DW_CFA_advance_loc        = 0x40, // high 2 bits are 0x1, lower 6 bits are delta
+-  DW_CFA_offset             = 0x80, // high 2 bits are 0x2, lower 6 bits are register
+-  DW_CFA_restore            = 0xC0, // high 2 bits are 0x3, lower 6 bits are register
++  DW_CFA_def_cfa_sf = 0x12,
++  DW_CFA_def_cfa_offset_sf = 0x13,
++  DW_CFA_val_offset = 0x14,
++  DW_CFA_val_offset_sf = 0x15,
++  DW_CFA_val_expression = 0x16,
++  DW_CFA_advance_loc = 0x40, // high 2 bits are 0x1, lower 6 bits are delta
++  DW_CFA_offset = 0x80,      // high 2 bits are 0x2, lower 6 bits are register
++  DW_CFA_restore = 0xC0,     // high 2 bits are 0x3, lower 6 bits are register
+ 
+   // GNU extensions
+-  DW_CFA_GNU_window_save              = 0x2D,
+-  DW_CFA_GNU_args_size                = 0x2E,
++  DW_CFA_GNU_window_save = 0x2D,
++  DW_CFA_GNU_args_size = 0x2E,
+   DW_CFA_GNU_negative_offset_extended = 0x2F,
+ 
+   // AARCH64 extensions
+-  DW_CFA_AARCH64_negate_ra_state      = 0x2D
++  DW_CFA_AARCH64_negate_ra_state_with_pc = 0x2C,
++  DW_CFA_AARCH64_negate_ra_state = 0x2D
+ };
+ 
+-
+ // FSF exception handling Pointer-Encoding constants
+ // Used in CFI augmentation by GCC
+ enum {
+-- 
+2.47.3
+

@@ -1,0 +1,210 @@
+From bad13a2b8cbf72e57a0e0b0072b1ea4f2d6d173d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Alex=20R=C3=B8nne=20Petersen?= <alex@alexrp.com>
+Date: Wed, 5 Mar 2025 07:59:58 +0100
+Subject: [PATCH] compiler: Update max int alignments for some targets.
+
+---
+ src/Type.zig            | 55 +++++++++++++++-------------------
+ test/behavior/align.zig | 65 +++++++++--------------------------------
+ 2 files changed, 36 insertions(+), 84 deletions(-)
+
+diff --git a/src/Type.zig b/src/Type.zig
+index 321730067d..518afe7a55 100644
+--- a/src/Type.zig
++++ b/src/Type.zig
+@@ -1641,69 +1641,60 @@ pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
+ pub fn maxIntAlignment(target: std.Target) u16 {
+     return switch (target.cpu.arch) {
+         .avr => 1,
++
+         .msp430 => 2,
+-        .xcore => 4,
+-        .propeller => 4,
+ 
++        .xcore,
++        .propeller,
++        => 4,
++
++        .amdgcn,
+         .arm,
+         .armeb,
+         .thumb,
+         .thumbeb,
++        .lanai,
+         .hexagon,
+         .mips,
+         .mipsel,
+         .powerpc,
+         .powerpcle,
+-        .amdgcn,
+         .riscv32,
+-        .sparc,
+         .s390x,
+-        .lanai,
+-        .wasm32,
+-        .wasm64,
+         => 8,
+ 
+-        // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
+-        // is a relevant number in three cases:
+-        // 1. Different machine code instruction when loading into SIMD register.
+-        // 2. The C ABI wants 16 for extern structs.
+-        // 3. 16-byte cmpxchg needs 16-byte alignment.
+-        // Same logic for powerpc64, mips64, sparc64.
+-        .powerpc64,
+-        .powerpc64le,
+-        .mips64,
+-        .mips64el,
+-        .sparc64,
+-        => switch (target.ofmt) {
+-            .c => 16,
+-            else => 8,
+-        },
+-
+-        .x86_64 => 16,
+-
+         // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
+-        .x86,
+         .aarch64,
+         .aarch64_be,
+-        .riscv64,
+         .bpfel,
+         .bpfeb,
++        .mips64,
++        .mips64el,
+         .nvptx,
+         .nvptx64,
++        .powerpc64,
++        .powerpc64le,
++        .riscv64,
++        .sparc,
++        .sparc64,
++        .wasm32,
++        .wasm64,
++        .x86,
++        .x86_64,
+         => 16,
+ 
+         // Below this comment are unverified but based on the fact that C requires
+         // int128_t to be 16 bytes aligned, it's a safe default.
+-        .csky,
+         .arc,
+-        .m68k,
++        .csky,
+         .kalimba,
++        .loongarch32,
++        .loongarch64,
++        .m68k,
+         .spirv,
+         .spirv32,
+-        .ve,
+         .spirv64,
+-        .loongarch32,
+-        .loongarch64,
++        .ve,
+         .xtensa,
+         => 16,
+     };
+diff --git a/test/behavior/align.zig b/test/behavior/align.zig
+index 5454fcf756..6ed63ea8ca 100644
+--- a/test/behavior/align.zig
++++ b/test/behavior/align.zig
+@@ -85,22 +85,19 @@ test "alignment and size of structs with 128-bit fields" {
+         y: u8,
+     };
+     const expected = switch (builtin.cpu.arch) {
++        .amdgcn,
+         .arm,
+         .armeb,
+         .thumb,
+         .thumbeb,
+         .hexagon,
++        .lanai,
+         .mips,
+         .mipsel,
+         .powerpc,
+         .powerpcle,
+-        .amdgcn,
+         .riscv32,
+-        .sparc,
+         .s390x,
+-        .lanai,
+-        .wasm32,
+-        .wasm64,
+         => .{
+             .a_align = 8,
+             .a_size = 16,
+@@ -114,59 +111,23 @@ test "alignment and size of structs with 128-bit fields" {
+             .u129_size = 24,
+         },
+ 
+-        .mips64,
+-        .mips64el,
+-        .powerpc64,
+-        .powerpc64le,
+-        .sparc64,
+-        => switch (builtin.object_format) {
+-            .c => .{
+-                .a_align = 16,
+-                .a_size = 16,
+-
+-                .b_align = 16,
+-                .b_size = 32,
+-
+-                .u128_align = 16,
+-                .u128_size = 16,
+-                .u129_align = 16,
+-                .u129_size = 32,
+-            },
+-            else => .{
+-                .a_align = 8,
+-                .a_size = 16,
+-
+-                .b_align = 16,
+-                .b_size = 32,
+-
+-                .u128_align = 8,
+-                .u128_size = 16,
+-                .u129_align = 8,
+-                .u129_size = 24,
+-            },
+-        },
+-
+-        .x86_64 => .{
+-            .a_align = 16,
+-            .a_size = 16,
+-
+-            .b_align = 16,
+-            .b_size = 32,
+-
+-            .u128_align = 16,
+-            .u128_size = 16,
+-            .u129_align = 16,
+-            .u129_size = 32,
+-        },
+-
+-        .x86,
+         .aarch64,
+         .aarch64_be,
+-        .riscv64,
+         .bpfel,
+         .bpfeb,
++        .mips64,
++        .mips64el,
+         .nvptx,
+         .nvptx64,
++        .powerpc64,
++        .powerpc64le,
++        .sparc,
++        .sparc64,
++        .riscv64,
++        .wasm32,
++        .wasm64,
++        .x86,
++        .x86_64,
+         => .{
+             .a_align = 16,
+             .a_size = 16,
+-- 
+2.47.3
+
