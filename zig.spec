@@ -79,7 +79,7 @@ Patch:          0005-build-Update-to-LLVM-Clang-20.patch
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  cmake
-BuildRequires:  llvm%{?llvm_compat}-devel
+BuildRequires:  llvm%{?llvm_compat}-devel = 20.1.4-2.full.el10
 BuildRequires:  clang%{?llvm_compat}-devel
 BuildRequires:  lld%{?llvm_compat}-devel
 BuildRequires:  zlib-devel
