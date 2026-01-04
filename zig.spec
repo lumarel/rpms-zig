@@ -4,7 +4,7 @@
 %global         public_key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
 # note here at which Fedora or EL release we need to use compat LLVM packages
-%if 0%{?fedora} >= 43 || 0%{?rhel} >= 9
+%if 0%{?fedora} >= 43 || 0%{?rhel} >= 11
 %global         llvm_compat 20
 %endif
 
@@ -57,7 +57,10 @@ Source2:        macros.%{name}
 # Remove native lib directories from rpath
 # this is unlikely to be upstreamed in its current state because upstream
 # wants to work around the shortcomings of NixOS
-Patch:          0001-remove-native-lib-directories-from-rpath.patch
+Patch0:         0001-remove-native-lib-directories-from-rpath.patch
+# LLVM on RHEL/EPEL only provides fewer targets so we patch the required targets down
+# Targets come from https://src.fedoraproject.org/rpms/llvm/blob/rawhide/f/llvm.spec
+Patch1:         0002-Remove-unsupported-LLVM-targets-for-EPEL.patch
 
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
@@ -140,7 +143,12 @@ This package contains common RPM macros for %{name}.
 %prep
 /usr/bin/minisign -V -m %{SOURCE0} -x %{SOURCE1} -P %{public_key} -Q | grep -F "file:%{archive_name}"
 
-%autosetup -p1
+%autosetup -N
+%patch 0 -p1
+%if 0%{?rhel}
+%patch 1 -p1
+%endif
+
 %if %{without bootstrap}
 # Ensure that the pre-build stage1 binary is not used
 rm -f stage1/zig1.wasm
