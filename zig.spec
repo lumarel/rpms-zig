@@ -1,5 +1,11 @@
+%if 0%{?rhel}
+# Zig depends on a C compiler (gcc) during bootstraping
+# older versions of gcc fail to compile the transpiled source so we limit it to x86_64
+%global         zig_arches x86_64
+%else
 # https://ziglang.org/download/VERSION/release-notes.html#Support-Table
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
+%endif
 # Signing key from https://ziglang.org/download/
 %global         public_key RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
