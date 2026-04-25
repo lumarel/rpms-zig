@@ -1,6 +1,6 @@
 %zig_arches x86_64 aarch64 riscv64 %{mips64}
 
-%zig %{_bindir}/zig
+%__zig %{_bindir}/zig
 
 %_zig_cache_dir %{_vpath_builddir}/zig-cache
 %_zig_package_dir %{_zig_cache_dir}/p
@@ -27,7 +27,10 @@
 # seperated build options
 %_zig_general_options --verbose --release=%{_zig_release_mode} --build-id=sha1 --summary all
 %_zig_project_options -Dtarget=%{_zig_target} -Dcpu=%{_zig_cpu}
-%_zig_system_integration --system "%{_zig_package_dir}"
+# 0.16.0 introduced packaging changes which install packages into this relative directory
+# Will be ovewritable in 0.17.0
+# https://codeberg.org/ziglang/zig/pulls/31950
+%_zig_system_integration --system "zig-pkg"
 %_zig_advanced_options -fallow-so-scripts --cache-dir "%{_zig_cache_dir}" --global-cache-dir "%{_zig_cache_dir}"
 
 %_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?_zig_system_integration} %{?_zig_advanced_options} %{?zig_build_options}
@@ -40,10 +43,11 @@
     mkdir -p \
         %{_zig_cache_dir} \
         %{_zig_package_dir} \
+        "zig-pkg" \
 }
 
 %zig_build %{shrink: \
-    %zig \
+    %__zig \
         build \
         %{?_zig_build_options} \
 }
@@ -56,7 +60,7 @@
 }
 
 %zig_fetch %{shrink: \
-    %zig \
+    %__zig \
         fetch \
         %{?_zig_fetch_options} \
 }

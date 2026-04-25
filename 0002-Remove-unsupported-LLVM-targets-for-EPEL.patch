@@ -1,6 +1,6 @@
-From ab92fe5f0be7a49fa2c97957bebf6278a1b69aaf Mon Sep 17 00:00:00 2001
+From 803935baf6a4730426afbb746adfd00c0ffc0f39 Mon Sep 17 00:00:00 2001
 From: Jan200101 <sentrycraft123@gmail.com>
-Date: Sun, 4 Jan 2026 12:41:39 +0100
+Date: Tue, 14 Apr 2026 19:20:26 +0200
 Subject: [PATCH 2/2] Remove unsupported LLVM targets for RHEL
 
 LLVM for RHEL is only build with a subset of targets
@@ -16,130 +16,130 @@ Signed-off-by: Jan200101 <sentrycraft123@gmail.com>
  3 files changed, 45 insertions(+), 97 deletions(-)
 
 diff --git a/cmake/Findllvm.cmake b/cmake/Findllvm.cmake
-index 5ff5de869c..5430ef9d59 100644
+index 0c08d4f0ac..ed4da12044 100644
 --- a/cmake/Findllvm.cmake
 +++ b/cmake/Findllvm.cmake
 @@ -83,7 +83,7 @@ if(ZIG_USE_LLVM_CONFIG)
        OUTPUT_STRIP_TRAILING_WHITESPACE)
      string(REPLACE " " ";" LLVM_TARGETS_BUILT "${LLVM_TARGETS_BUILT_SPACES}")
  
--    set(ZIG_LLVM_REQUIRED_TARGETS "AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SystemZ;VE;WebAssembly;X86;XCore")
+-    set(ZIG_LLVM_REQUIRED_TARGETS "AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;SPIRV;Sparc;SystemZ;VE;WebAssembly;X86;XCore")
 +    set(ZIG_LLVM_REQUIRED_TARGETS "X86;AMDGPU;PowerPC;NVPTX;SystemZ;AArch64;BPF;WebAssembly;RISCV")
  
      set(ZIG_LLVM_REQUIRED_TARGETS_ENABLED TRUE)
      foreach(TARGET_NAME IN LISTS ZIG_LLVM_REQUIRED_TARGETS)
 diff --git a/src/codegen/llvm.zig b/src/codegen/llvm.zig
-index bd2c7bd022..a98fbab47e 100644
+index 1ba3b272da..1ac1f6adc8 100644
 --- a/src/codegen/llvm.zig
 +++ b/src/codegen/llvm.zig
-@@ -13016,20 +13016,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-             llvm.LLVMInitializeAMDGPUAsmPrinter();
-             llvm.LLVMInitializeAMDGPUAsmParser();
+@@ -4736,20 +4736,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+             bindings.LLVMInitializeAMDGPUAsmPrinter();
+             bindings.LLVMInitializeAMDGPUAsmParser();
          },
 -        .thumb, .thumbeb, .arm, .armeb => {
--            llvm.LLVMInitializeARMTarget();
--            llvm.LLVMInitializeARMTargetInfo();
--            llvm.LLVMInitializeARMTargetMC();
--            llvm.LLVMInitializeARMAsmPrinter();
--            llvm.LLVMInitializeARMAsmParser();
+-            bindings.LLVMInitializeARMTarget();
+-            bindings.LLVMInitializeARMTargetInfo();
+-            bindings.LLVMInitializeARMTargetMC();
+-            bindings.LLVMInitializeARMAsmPrinter();
+-            bindings.LLVMInitializeARMAsmParser();
 -        },
 -        .avr => {
--            llvm.LLVMInitializeAVRTarget();
--            llvm.LLVMInitializeAVRTargetInfo();
--            llvm.LLVMInitializeAVRTargetMC();
--            llvm.LLVMInitializeAVRAsmPrinter();
--            llvm.LLVMInitializeAVRAsmParser();
+-            bindings.LLVMInitializeAVRTarget();
+-            bindings.LLVMInitializeAVRTargetInfo();
+-            bindings.LLVMInitializeAVRTargetMC();
+-            bindings.LLVMInitializeAVRAsmPrinter();
+-            bindings.LLVMInitializeAVRAsmParser();
 -        },
          .bpfel, .bpfeb => {
-             llvm.LLVMInitializeBPFTarget();
-             llvm.LLVMInitializeBPFTargetInfo();
-@@ -13037,34 +13023,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-             llvm.LLVMInitializeBPFAsmPrinter();
-             llvm.LLVMInitializeBPFAsmParser();
+             bindings.LLVMInitializeBPFTarget();
+             bindings.LLVMInitializeBPFTargetInfo();
+@@ -4757,34 +4743,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+             bindings.LLVMInitializeBPFAsmPrinter();
+             bindings.LLVMInitializeBPFAsmParser();
          },
 -        .hexagon => {
--            llvm.LLVMInitializeHexagonTarget();
--            llvm.LLVMInitializeHexagonTargetInfo();
--            llvm.LLVMInitializeHexagonTargetMC();
--            llvm.LLVMInitializeHexagonAsmPrinter();
--            llvm.LLVMInitializeHexagonAsmParser();
+-            bindings.LLVMInitializeHexagonTarget();
+-            bindings.LLVMInitializeHexagonTargetInfo();
+-            bindings.LLVMInitializeHexagonTargetMC();
+-            bindings.LLVMInitializeHexagonAsmPrinter();
+-            bindings.LLVMInitializeHexagonAsmParser();
 -        },
 -        .lanai => {
--            llvm.LLVMInitializeLanaiTarget();
--            llvm.LLVMInitializeLanaiTargetInfo();
--            llvm.LLVMInitializeLanaiTargetMC();
--            llvm.LLVMInitializeLanaiAsmPrinter();
--            llvm.LLVMInitializeLanaiAsmParser();
+-            bindings.LLVMInitializeLanaiTarget();
+-            bindings.LLVMInitializeLanaiTargetInfo();
+-            bindings.LLVMInitializeLanaiTargetMC();
+-            bindings.LLVMInitializeLanaiAsmPrinter();
+-            bindings.LLVMInitializeLanaiAsmParser();
 -        },
 -        .mips, .mipsel, .mips64, .mips64el => {
--            llvm.LLVMInitializeMipsTarget();
--            llvm.LLVMInitializeMipsTargetInfo();
--            llvm.LLVMInitializeMipsTargetMC();
--            llvm.LLVMInitializeMipsAsmPrinter();
--            llvm.LLVMInitializeMipsAsmParser();
+-            bindings.LLVMInitializeMipsTarget();
+-            bindings.LLVMInitializeMipsTargetInfo();
+-            bindings.LLVMInitializeMipsTargetMC();
+-            bindings.LLVMInitializeMipsAsmPrinter();
+-            bindings.LLVMInitializeMipsAsmParser();
 -        },
 -        .msp430 => {
--            llvm.LLVMInitializeMSP430Target();
--            llvm.LLVMInitializeMSP430TargetInfo();
--            llvm.LLVMInitializeMSP430TargetMC();
--            llvm.LLVMInitializeMSP430AsmPrinter();
--            llvm.LLVMInitializeMSP430AsmParser();
+-            bindings.LLVMInitializeMSP430Target();
+-            bindings.LLVMInitializeMSP430TargetInfo();
+-            bindings.LLVMInitializeMSP430TargetMC();
+-            bindings.LLVMInitializeMSP430AsmPrinter();
+-            bindings.LLVMInitializeMSP430AsmParser();
 -        },
          .nvptx, .nvptx64 => {
-             llvm.LLVMInitializeNVPTXTarget();
-             llvm.LLVMInitializeNVPTXTargetInfo();
-@@ -13086,13 +13044,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-             llvm.LLVMInitializeRISCVAsmPrinter();
-             llvm.LLVMInitializeRISCVAsmParser();
+             bindings.LLVMInitializeNVPTXTarget();
+             bindings.LLVMInitializeNVPTXTargetInfo();
+@@ -4806,13 +4764,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+             bindings.LLVMInitializeRISCVAsmPrinter();
+             bindings.LLVMInitializeRISCVAsmParser();
          },
 -        .sparc, .sparc64 => {
--            llvm.LLVMInitializeSparcTarget();
--            llvm.LLVMInitializeSparcTargetInfo();
--            llvm.LLVMInitializeSparcTargetMC();
--            llvm.LLVMInitializeSparcAsmPrinter();
--            llvm.LLVMInitializeSparcAsmParser();
+-            bindings.LLVMInitializeSparcTarget();
+-            bindings.LLVMInitializeSparcTargetInfo();
+-            bindings.LLVMInitializeSparcTargetMC();
+-            bindings.LLVMInitializeSparcAsmPrinter();
+-            bindings.LLVMInitializeSparcAsmParser();
 -        },
          .s390x => {
-             llvm.LLVMInitializeSystemZTarget();
-             llvm.LLVMInitializeSystemZTargetInfo();
-@@ -13123,13 +13074,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-                 llvm.LLVMInitializeXtensaAsmParser();
+             bindings.LLVMInitializeSystemZTarget();
+             bindings.LLVMInitializeSystemZTargetInfo();
+@@ -4843,13 +4794,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+                 bindings.LLVMInitializeXtensaAsmParser();
              }
          },
 -        .xcore => {
--            llvm.LLVMInitializeXCoreTarget();
--            llvm.LLVMInitializeXCoreTargetInfo();
--            llvm.LLVMInitializeXCoreTargetMC();
--            llvm.LLVMInitializeXCoreAsmPrinter();
+-            bindings.LLVMInitializeXCoreTarget();
+-            bindings.LLVMInitializeXCoreTargetInfo();
+-            bindings.LLVMInitializeXCoreTargetMC();
+-            bindings.LLVMInitializeXCoreAsmPrinter();
 -            // There is no LLVMInitializeXCoreAsmParser function.
 -        },
          .m68k => {
              if (build_options.llvm_has_m68k) {
-                 llvm.LLVMInitializeM68kTarget();
-@@ -13148,13 +13092,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
-                 llvm.LLVMInitializeCSKYAsmParser();
+                 bindings.LLVMInitializeM68kTarget();
+@@ -4868,13 +4812,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+                 bindings.LLVMInitializeCSKYAsmParser();
              }
          },
 -        .ve => {
--            llvm.LLVMInitializeVETarget();
--            llvm.LLVMInitializeVETargetInfo();
--            llvm.LLVMInitializeVETargetMC();
--            llvm.LLVMInitializeVEAsmPrinter();
--            llvm.LLVMInitializeVEAsmParser();
+-            bindings.LLVMInitializeVETarget();
+-            bindings.LLVMInitializeVETargetInfo();
+-            bindings.LLVMInitializeVETargetMC();
+-            bindings.LLVMInitializeVEAsmPrinter();
+-            bindings.LLVMInitializeVEAsmParser();
 -        },
          .arc => {
              if (build_options.llvm_has_arc) {
-                 llvm.LLVMInitializeARCTarget();
-@@ -13164,21 +13101,29 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+                 bindings.LLVMInitializeARCTarget();
+@@ -4884,21 +4821,29 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
                  // There is no LLVMInitializeARCAsmParser function.
              }
          },
 -        .loongarch32, .loongarch64 => {
--            llvm.LLVMInitializeLoongArchTarget();
--            llvm.LLVMInitializeLoongArchTargetInfo();
--            llvm.LLVMInitializeLoongArchTargetMC();
--            llvm.LLVMInitializeLoongArchAsmPrinter();
--            llvm.LLVMInitializeLoongArchAsmParser();
+-            bindings.LLVMInitializeLoongArchTarget();
+-            bindings.LLVMInitializeLoongArchTargetInfo();
+-            bindings.LLVMInitializeLoongArchTargetMC();
+-            bindings.LLVMInitializeLoongArchAsmPrinter();
+-            bindings.LLVMInitializeLoongArchAsmParser();
 -        },
 +
 +        // Disabled LLVM targets
@@ -164,20 +164,20 @@ index bd2c7bd022..a98fbab47e 100644
          .spirv32,
          .spirv64,
 -        => {
--            llvm.LLVMInitializeSPIRVTarget();
--            llvm.LLVMInitializeSPIRVTargetInfo();
--            llvm.LLVMInitializeSPIRVTargetMC();
--            llvm.LLVMInitializeSPIRVAsmPrinter();
+-            bindings.LLVMInitializeSPIRVTarget();
+-            bindings.LLVMInitializeSPIRVTargetInfo();
+-            bindings.LLVMInitializeSPIRVTargetMC();
+-            bindings.LLVMInitializeSPIRVAsmPrinter();
 -        },
 +        => unreachable,
  
          // LLVM does does not have a backend for these.
-         .kalimba,
+         .alpha,
 diff --git a/src/target.zig b/src/target.zig
-index f8201d691b..8491912bd5 100644
+index 3d04c06f5e..9e19836815 100644
 --- a/src/target.zig
 +++ b/src/target.zig
-@@ -166,23 +166,12 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat)
+@@ -185,23 +185,12 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat)
      }
  
      return switch (target.cpu.arch) {
@@ -201,10 +201,10 @@ index f8201d691b..8491912bd5 100644
          .powerpc,
          .powerpcle,
          .powerpc64,
-@@ -190,24 +179,38 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat)
-         .amdgcn,
-         .riscv32,
+@@ -211,24 +200,38 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat)
+         .riscv32be,
          .riscv64,
+         .riscv64be,
 -        .sparc,
 -        .sparc64,
 -        .spirv32,
@@ -250,5 +250,5 @@ index f8201d691b..8491912bd5 100644
          .csky,
          .xtensa,
 -- 
-2.52.0
+2.53.0
 
