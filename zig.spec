@@ -32,7 +32,6 @@
 %endif
 %global         llvm_version 21.1.8
 
-# Build cache directory configuration
 %global zig_cache_dir %{_vpath_builddir}/zig-cache
 
 
