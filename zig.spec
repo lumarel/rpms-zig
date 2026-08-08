@@ -178,7 +178,7 @@ This package contains common RPM macros for %{name}.
 %endif
 
 %prep
-%{_bindir}/minisign -V -m %{SOURCE0} -x %{SOURCE1} -P %{public_key} -Q | grep -F "file:%{archive_name}"
+minisign -V -m %{SOURCE0} -x %{SOURCE1} -P %{public_key} -Q | grep -F "file:%{archive_name}"
 
 %autosetup -N
 %patch 0 -p1
