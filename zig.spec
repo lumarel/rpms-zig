@@ -27,24 +27,20 @@
 # dependency versions and cache
 
 # Compatible LLVM/Clang version definitions
-%if 0%{?fedora} >= 44 || 0%{?rhel} >= 11 || (0%{?rhel} == 10 && "%{?distcore}" != ".el10_2" && "%{?dist}" != ".el10_2")
-%global         llvm_compat 21
+%if 0%{?fedora} >= 45 || 0%{?rhel} >= 11 || (0%{?rhel} == 10 && "%{?distcore}" != ".el10_2" && "%{?dist}" != ".el10_2")
+%global         llvm_compat 22
 %endif
-%global         llvm_version 21.1.8
+%global         llvm_version 22.1.8
 
 %global zig_cache_dir %{_vpath_builddir}/zig-cache
 
-
 # build conditionals
-
 %bcond bootstrap 0
 %bcond docs      %{without bootstrap}
 %bcond macro     %{without bootstrap}
 %bcond test      1
 
-
 # build and install options
-
 %global zig_build_options %{shrink: \
     --verbose \
     --release=fast \
@@ -52,11 +48,9 @@
     \
     -Dtarget=native \
     -Dcpu=baseline \
-    --zig-lib-dir lib \
     --build-id=sha1 \
     \
     --cache-dir "%{zig_cache_dir}" \
-    --global-cache-dir "%{zig_cache_dir}" \
     \
     -Dversion-string="%{?dev_version}%{!?dev_version:%{version}}" \
     -Dstatic-llvm=false \
@@ -73,7 +67,7 @@
 }
 
 Name:           zig
-Version:        0.16.0
+Version:        0.17.1
 Release:        %autorelease
 Summary:        Programming language for maintaining robust, optimal, and reusable software
 
@@ -82,14 +76,13 @@ Summary:        Programming language for maintaining robust, optimal, and reusab
 
 License:        MIT AND NCSA AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0 AND GPL-2.0-or-later AND GPL-2.0-or-later WITH GCC-exception-2.0 AND BSD-3-Clause AND Inner-Net-2.0 AND ISC AND LicenseRef-Fedora-Public-Domain AND GFDL-1.1-or-later AND ZPL-2.1
 URL:            https://ziglang.org
-Source0:        %{url}/download/%{version}/%{archive_name}
-Source1:        %{url}/download/%{version}/%{archive_name}.minisig
+Source0:        %{url}/builds/%{archive_name}
+Source1:        %{url}/builds/%{archive_name}.minisig
 Source2:        macros.%{name}
 
-# Remove native lib directories from rpath
-# this is unlikely to be upstreamed in its current state because upstream
-# wants to work around the shortcomings of NixOS
-Patch0:         0001-remove-native-lib-directories-from-rpath.patch
+# Prevents rpaths from being included for native builds
+# https://codeberg.org/ziglang/zig/pulls/35778
+Patch0:         0001-compiler-don-t-include-lib-directory-as-rpath-for-na.patch
 
 # LLVM on RHEL/EPEL only provides fewer targets so we patch the required targets down
 # Targets come from https://src.fedoraproject.org/rpms/llvm/blob/rawhide/f/llvm.spec
@@ -113,7 +106,7 @@ BuildRequires:  help2man
 BuildRequires:  minisign
 
 %if %{without bootstrap}
-BuildRequires:  (zig >= 0.16 with zig < 0.17)
+BuildRequires:  (zig >= 0.17 with zig < 0.18)
 %endif
 
 %if %{with test}
@@ -122,7 +115,7 @@ BuildRequires:  elfutils-libelf-devel
 BuildRequires:  libstdc++-static
 %endif
 
-Requires:       %{name}-libs = %{version}
+Requires:       %{name}-libs = %{version}-%{release}
 
 # These packages are bundled as source
 
@@ -146,8 +139,9 @@ Provides: bundled(wasi-libc) = d03829489904d38c624f6de9983190f1e5e7c9c5
 ExclusiveArch: %{zig_arches}
 
 %description
-Zig is an open-source programming language designed for robustness, optimality,
-and clarity. This package provides the zig compiler and the associated runtime.
+Zig is an open-source programming language designed for robustness, optimal
+performance, and clarity. This package provides the zig compiler and the
+associated runtime.
 
 # The Zig stdlib only contains uncompiled code
 %package libs
@@ -161,7 +155,7 @@ BuildArch:      noarch
 %package doc
 Summary:        Documentation for %{name}
 BuildArch:      noarch
-Requires:       %{name} = %{version}
+Requires:       %{name} = %{version}-%{release}
 
 %description doc
 Documentation for %{name}. For more information, visit %{url}
@@ -197,6 +191,9 @@ rm -f stage1/zig1.wasm
 # Zig generates a large C file for bootstrapping which does not
 # behave well with ccache so we explicitly disable it.
 export CCACHE_DISABLE=1
+
+export ZIG_GLOBAL_CACHE_DIR="%{zig_cache_dir}"
+export ZIG_LIB_DIR="lib"
 
 # zig doesn't know how to dynamically link llvm on its own so we need cmake to generate a header ahead of time
 # if we provide the header we need to also build zigcpp
@@ -237,9 +234,7 @@ help2man --no-discard-stderr --no-info "./zig-out/bin/zig" --version-option=vers
 %install
 %if %{with bootstrap}
 %cmake_install
-%if 0%{?rhel}
 rm -rf %{buildroot}%{_prefix}/doc
-%endif
 %else
 DESTDIR="%{buildroot}" zig build install %{zig_install_options}
 

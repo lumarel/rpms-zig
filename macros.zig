@@ -3,7 +3,7 @@
 %__zig %{_bindir}/zig
 
 %_zig_cache_dir %{_vpath_builddir}/zig-cache
-%_zig_package_dir %{_zig_cache_dir}/p
+%_zig_package_dir zig-pkg
 
 # expected features for each arch when targeting baseline
 # found in https://github.com/ziglang/zig/tree/master/lib/std/Target
@@ -27,15 +27,13 @@
 # seperated build options
 %_zig_general_options --verbose --release=%{_zig_release_mode} --build-id=sha1 --summary all
 %_zig_project_options -Dtarget=%{_zig_target} -Dcpu=%{_zig_cpu}
-# 0.16.0 introduced packaging changes which install packages into this relative directory
-# Will be ovewritable in 0.17.0
-# https://codeberg.org/ziglang/zig/pulls/31950
-%_zig_system_integration --system "zig-pkg"
-%_zig_advanced_options -fallow-so-scripts --cache-dir "%{_zig_cache_dir}" --global-cache-dir "%{_zig_cache_dir}"
+# the --system flag is needed to make the build system not try to fetch resources externally
+%_zig_system_integration --system "%{_zig_package_dir}"
+%_zig_advanced_options -fallow-so-scripts --cache-dir "%{_zig_cache_dir}" --pkg-dir "%{_zig_package_dir}"
 
 %_zig_build_options %{?_zig_general_options} %{?_zig_project_options} %{?_zig_system_integration} %{?_zig_advanced_options} %{?zig_build_options}
 %_zig_install_options --prefix "%{_prefix}" --prefix-lib-dir "%{_libdir}" --prefix-exe-dir "%{_bindir}" --prefix-include-dir "%{_includedir}" %{?zig_install_options}
-%_zig_fetch_options --global-cache-dir %{_zig_cache_dir} %{?zig_fetch_options}
+%_zig_fetch_options --pkg-dir "%{_zig_package_dir}" %{?zig_fetch_options}
 %_zig_test_options %{?zig_test_options}
 
 
@@ -43,10 +41,10 @@
     mkdir -p \
         %{_zig_cache_dir} \
         %{_zig_package_dir} \
-        "zig-pkg" \
 }
 
 %zig_build %{shrink: \
+    ZIG_GLOBAL_CACHE_DIR="%{_zig_cache_dir}" \
     %__zig \
         build \
         %{?_zig_build_options} \
@@ -60,6 +58,7 @@
 }
 
 %zig_fetch %{shrink: \
+    ZIG_GLOBAL_CACHE_DIR="%{_zig_cache_dir}" \
     %__zig \
         fetch \
         %{?_zig_fetch_options} \
@@ -68,5 +67,5 @@
 %zig_test %{shrink: \
     %zig_build \
         test \
-        %{?%_zig_test_options} \
+        %{?_zig_test_options} \
 }
