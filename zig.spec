@@ -46,7 +46,7 @@ fi
 %global zig_cache_dir %{_vpath_builddir}/zig-cache
 
 # build conditionals
-%bcond bootstrap 0
+%bcond bootstrap 1
 %bcond docs      %{without bootstrap}
 %bcond macro     %{without bootstrap}
 %bcond test      1
