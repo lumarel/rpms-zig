@@ -84,10 +84,6 @@ Source2:        macros.%{name}
 # https://codeberg.org/ziglang/zig/pulls/35778
 Patch0:         0001-compiler-don-t-include-lib-directory-as-rpath-for-na.patch
 
-# LLVM on RHEL/EPEL only provides fewer targets so we patch the required targets down
-# Targets come from https://src.fedoraproject.org/rpms/llvm/blob/rawhide/f/llvm.spec
-Patch1:         0002-Remove-unsupported-LLVM-targets-for-EPEL.patch
-
 %if %{without toolchain_clang}
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
