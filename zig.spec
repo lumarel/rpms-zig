@@ -95,9 +95,9 @@ BuildRequires:  gcc-c++
 BuildRequires:  clang
 %endif
 BuildRequires:  cmake
-BuildRequires:  llvm%{?llvm_compat}-devel
-BuildRequires:  clang%{?llvm_compat}-devel
-BuildRequires:  lld%{?llvm_compat}-devel
+BuildRequires:  llvm%{?llvm_compat}-devel = 22.1.8-1.full 
+BuildRequires:  clang%{?llvm_compat}-devel = 22.1.8-1.full 
+BuildRequires:  lld%{?llvm_compat}-devel = 22.1.8-1.full 
 BuildRequires:  zlib-devel
 BuildRequires:  libxml2-devel
 # for man page generation
