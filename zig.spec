@@ -1,13 +1,7 @@
 # architecture and toolchain
 
-%if 0%{?rhel}
-# Zig depends on a C compiler (gcc) during bootstrapping.
-# Older versions of gcc fail to compile the transpiled source, so limit to x86_64.
-%global         zig_arches x86_64
-%else
 # Supported architectures: https://ziglang.org/download/VERSION/release-notes.html#Support-Table
 %global         zig_arches x86_64 aarch64 riscv64 %{mips64}
-%endif
 
 # GCC < 16.0 miscompiles on RISC-V; use Clang instead on older Fedora versions
 %ifarch riscv64
@@ -172,9 +166,6 @@ minisign -V -m %{SOURCE0} -x %{SOURCE1} -P %{public_key} -Q | grep -F "file:%{ar
 
 %autosetup -N
 %patch 0 -p1
-%if 0%{?rhel}
-%patch 1 -p1
-%endif
 
 %if %{without bootstrap}
 # Ensure that the pre-build stage1 binary is not used
