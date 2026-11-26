@@ -10,6 +10,13 @@
 %endif
 %endif
 
+# GCC 14 on RHEL x86_64 (-march=x86-64-v3) miscompiles zig2; use Clang instead
+%ifarch x86_64
+%if 0%{?rhel}
+%bcond toolchain_clang 1
+%endif
+%endif
+
 %if %{with toolchain_clang}
 %global toolchain clang
 %endif
