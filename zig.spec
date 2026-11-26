@@ -19,6 +19,16 @@
 
 %if %{with toolchain_clang}
 %global toolchain clang
+# On RHEL, clang uses gcc-toolset's libstdc++.so, a linker script that also
+# pulls in -lstdc++_nonshared from the gcc-toolset lib directory. Zig only
+# searches its native lib paths (plus LIBRARY_PATH), so expose that directory.
+# Needed in every section that links zig (build and install).
+%global zig_set_library_path %{expand:
+nonshared="$(clang++ -print-file-name=libstdc++_nonshared.a)"
+if [ -f "$nonshared" ]; then
+    export LIBRARY_PATH="$(dirname "$nonshared")${LIBRARY_PATH:+:$LIBRARY_PATH}"
+fi
+}
 %endif
 
 # minisign public key for source verification (from https://ziglang.org/download/)
@@ -188,16 +198,7 @@ export CCACHE_DISABLE=1
 
 export ZIG_GLOBAL_CACHE_DIR="%{zig_cache_dir}"
 export ZIG_LIB_DIR="lib"
-
-%if %{with toolchain_clang}
-# On RHEL, clang uses gcc-toolset's libstdc++.so, a linker script that also
-# pulls in -lstdc++_nonshared from the gcc-toolset lib directory. Zig only
-# searches its native lib paths (plus LIBRARY_PATH), so expose that directory.
-nonshared="$(clang++ -print-file-name=libstdc++_nonshared.a)"
-if [ -f "$nonshared" ]; then
-    export LIBRARY_PATH="$(dirname "$nonshared")${LIBRARY_PATH:+:$LIBRARY_PATH}"
-fi
-%endif
+%{?zig_set_library_path}
 
 # zig doesn't know how to dynamically link llvm on its own so we need cmake to generate a header ahead of time
 # if we provide the header we need to also build zigcpp
@@ -236,6 +237,7 @@ help2man --no-discard-stderr --no-info "./zig-out/bin/zig" --version-option=vers
 %endif
 
 %install
+%{?zig_set_library_path}
 %if %{with bootstrap}
 %cmake_install
 rm -rf %{buildroot}%{_prefix}/doc
